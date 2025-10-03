@@ -12,17 +12,15 @@ import onnx
 import cv2 
 import io 
 
-# --- Initial Setup ---
-# Force CPU for ONNX compatibility and stability
+
 device = torch.device("cpu") 
 
-# Transform for Grad-CAM (simple resize/ToTensor, no normalization)
+
 transform_gradcam = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
 ])
 
-# Transform for Model Inference (resize, ToTensor, and Normalization)
 transform = transforms.Compose([
     transforms.Resize((224,224)),
     transforms.ToTensor(),
@@ -32,9 +30,6 @@ transform = transforms.Compose([
 class_names = ["NORMAL", "PNEUMONIA"]
 
 
-# =================================================================
-# 1. GRAD-CAM LOGIC
-# =================================================================
 
 def generate_grad_cam(model, target_layer, img_tensor, original_img):
     """Generates a heat map using Grad-CAM."""
@@ -86,9 +81,6 @@ def generate_grad_cam(model, target_layer, img_tensor, original_img):
     return superimposed_img_pil
 
 
-# =================================================================
-# 2. VISUALIZATION AND DATA HELPERS
-# =================================================================
 
 def get_status_color(class_name):
     """Returns 'red' for PNEUMONIA and 'green' for NORMAL for markdown text."""
@@ -115,9 +107,7 @@ def create_conditional_bar_chart(df, model_name):
     
     return chart
 
-# =================================================================
-# 3. MODEL LOADING AND EXPORT
-# =================================================================
+
 
 @st.cache_resource
 def load_pytorch_model():
@@ -137,7 +127,7 @@ def load_onnx_model(_model_pt, device):
     ONNX_PATH = "model.onnx"
     
     if not os.path.exists(ONNX_PATH) or os.path.getsize(ONNX_PATH) < 100000:
-        # Exporting PyTorch model to ONNX if not found
+        
         dummy_input = torch.randn(1, 3, 224, 224, device=device, dtype=torch.float32)
 
         try:
@@ -167,23 +157,18 @@ if onnx_session is None:
     st.stop()
 
 
-# =================================================================
-# 4. STREAMLIT UI AND INFERENCE
-# =================================================================
 
-# --- TITLE CHANGE HERE ---
 st.title("CHEST X-RAY PNEUMONIA CLASSIFIER") 
 st.markdown("---")
 
 
-# File Uploader
 uploaded_file = st.file_uploader("Choose a Chest X-ray image", type=["jpg","jpeg","png"])
 
 if uploaded_file:
     image_bytes = uploaded_file.read()
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     
-    # --- Inference Setup ---
+ 
     current_model = load_pytorch_model()
     target_layer = current_model.layer4[-1].conv2 
     
@@ -191,45 +176,42 @@ if uploaded_file:
     gradcam_tensor = transform_gradcam(img).unsqueeze(0).to(device).to(torch.float32)
     gradcam_tensor.requires_grad_(True)
     
-    # PYTORCH PREDICTION (for Grad-CAM logic)
+   
     outputs_pt = current_model(img_tensor)
     probs_pt = torch.softmax(outputs_pt, dim=1)[0]
     pred_class_pt = class_names[torch.argmax(probs_pt).item()]
 
-    # ONNX PREDICTION (Primary model for final diagnosis)
+   
     x = transform(img).unsqueeze(0).numpy().astype(np.float32)
     outputs_onnx = onnx_session.run(None, {"input": x})[0][0]
     probs_onnx = np.exp(outputs_onnx) / np.sum(np.exp(outputs_onnx))
     
-    # Final Diagnosis is the class with the HIGHEST score (default 50% threshold)
+   
     final_pred_idx = np.argmax(probs_onnx)
     final_diagnosis_class = class_names[final_pred_idx]
     final_diagnosis_color = get_status_color(final_diagnosis_class)
     max_prob = probs_onnx[final_pred_idx]
     
     
-    # --- CLASSIFICATION RESULT (Top of Image) ---
     st.markdown("### Classification Result:")
     
-    # Classification Result Text
+  
     if final_diagnosis_class == "PNEUMONIA":
         st.markdown(f"## :{final_diagnosis_color}[PNEUMONIA DETECTED]")
         st.warning("⚠️ Action Recommended: Please consult a medical professional immediately with this result.")
     else:
         st.markdown(f"## :{final_diagnosis_color}[NORMAL FINDING]")
-        # Updated: Calm and professional message
+      
         st.info("✅ **Model Analysis:** No Sign of Pneumonia Detected.") 
 
     st.markdown(f"Confidence: **{max_prob*100:.2f}%**")
     st.markdown("---")
 
-    # --- UPLOADED X-RAY IMAGE (Large) ---
     st.markdown("### Uploaded X-ray")
     st.image(img, use_container_width=True)
     st.markdown("---")
 
     
-    # --- GRAD-CAM VISUALIZATION (Large) ---
     st.markdown("### Model Focus (Grad-CAM Visualization)")
     if pred_class_pt == "PNEUMONIA":
         with st.spinner("Generating Explainability Heatmap..."):
@@ -241,11 +223,11 @@ if uploaded_file:
     st.markdown("---")
 
     
-    # --- PLOTS (SIDE-BY-SIDE) ---
+ 
     st.markdown("### Model Prediction Scores")
     col_pt, col_onnx = st.columns(2)
 
-    # 1. PyTorch Results Column
+  
     with col_pt:
         st.markdown("#### PyTorch Prediction")
         pred_idx_pt = torch.argmax(probs_pt).item()
@@ -256,10 +238,9 @@ if uploaded_file:
             f"Highest Confidence: **:{color_pt}[{pred_class_pt}]** ({pred_prob_pt*100:.4f}%)"
         )
         df_pt = pd.DataFrame({"Class": class_names, "Probability":[p.item() for p in probs_pt]})
-        # Updated chart title
+   
         st.altair_chart(create_conditional_bar_chart(df_pt, "PyTorch"), use_container_width=True) 
 
-    # 2. ONNX Results Column
     with col_onnx:
         st.markdown("#### ONNX Prediction")
         pred_prob_onnx = probs_onnx[final_pred_idx]
@@ -269,5 +250,5 @@ if uploaded_file:
             f"Highest Confidence: **:{color_onnx}[{final_diagnosis_class}]** ({pred_prob_onnx*100:.4f}%)"
         )
         df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
-        # Updated chart title
+  
         st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
