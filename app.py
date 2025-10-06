@@ -198,11 +198,11 @@ if uploaded_file:
   
     if final_diagnosis_class == "PNEUMONIA":
         st.markdown(f"## :{final_diagnosis_color}[PNEUMONIA DETECTED]")
-        st.warning("⚠️ Action Recommended: Please consult a medical professional immediately with this result.")
+        st.warning("Action Recommended: Please consult a medical professional immediately with this result.")
     else:
         st.markdown(f"## :{final_diagnosis_color}[NORMAL FINDING]")
       
-        st.info("✅ **Model Analysis:** No Sign of Pneumonia Detected.") 
+        st.info("**Model Analysis:** No Sign of Pneumonia Detected.") 
 
     st.markdown(f"Confidence: **{max_prob*100:.2f}%**")
     st.markdown("---")
@@ -252,3 +252,4 @@ if uploaded_file:
         df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
   
         st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
+
