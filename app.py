@@ -94,11 +94,11 @@ def generate_grad_cam(model, target_layer, img_tensor, original_img):
 
 def get_status_color(class_name):
     """Returns 'red' for PNEUMONIA and 'green' for NORMAL for markdown text."""
+    # Using Streamlit's built-in color strings
     return "red" if class_name == "PNEUMONIA" else "green"
 
 def create_conditional_bar_chart(df, model_name):
-    """Creates a VERTICAL Altair bar chart with conditional colors.
-    Removed cornerRadiusTop to prevent SchemaValidationError."""
+    """Creates a VERTICAL Altair bar chart with conditional colors for dark mode."""
     
     color_scale = alt.condition(
         alt.datum.Class == "PNEUMONIA",
@@ -106,7 +106,22 @@ def create_conditional_bar_chart(df, model_name):
         alt.value("#03dac6")  # Dark mode teal for success
     )
     
-    # FIX: Removed cornerRadiusTop=4 to fix SchemaValidationError
+    # Setting dark theme for Altair chart
+    chart_theme = {
+        "config": {
+            "title": {"color": "#ffffff"},
+            "axis": {
+                "labelColor": "#e0e0e0",
+                "titleColor": "#e0e0e0",
+                "gridColor": "#333333",
+                "domainColor": "#e0e0e0",
+            },
+            "view": {
+                "stroke": "transparent"
+            }
+        }
+    }
+    
     chart = alt.Chart(df).mark_bar(size=40).encode(
         x=alt.X("Class", sort="-y", title=None, axis=alt.Axis(labels=True, title=None)),
         y=alt.Y("Probability", axis=alt.Axis(format=".0%", title="Probability")),
@@ -116,7 +131,7 @@ def create_conditional_bar_chart(df, model_name):
         title=f"{model_name} Class Probabilities"
     ).interactive()
     
-    return chart
+    return chart.configure_view(stroke=None).configure(**chart_theme)
 
 # --- MODEL LOADING (CASHED) ---
 
@@ -413,7 +428,8 @@ if uploaded_file:
         st.markdown(
             f"Highest Confidence: **:{color_onnx}[{final_diagnosis_class}]** ({pred_prob_onnx*100:.4f}%)"
         )
-        df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx)
+        # FIX: Added missing closing curly brace '}'
+        df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
     
         st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX Runtime"), use_container_width=True)
 
@@ -422,6 +438,7 @@ else:
     st.info("Upload an X-Ray image in the sidebar to begin the classification process.")
     # Updated placeholder text color to be visible on dark background
     st.image("https://placehold.co/1000x500/121212/bb86fc?text=Cliniscan+AI+Assistant+%7C+Waiting+for+Image+Upload", use_container_width=True, caption="Sample Chest X-Ray Placeholder")
+
 
 
 
