@@ -28,6 +28,12 @@ class_names = ["NORMAL", "PNEUMONIA"]
 MODEL_PATH = "model.pth" # PyTorch model path (Disabled for memory reasons)
 ONNX_PATH = "model.onnx" # ONNX model path (Primary active model)
 
+# DIRECT DOWNLOAD URL from the user's Google Drive link
+# File ID: 1Ojg5BWXIiE0Z17kIJD33qEFAdTucgiMl
+# Ensure this file is set to "Public" or "Anyone with the link" access.
+DRIVE_URL = "https://drive.google.com/uc?export=download&id=1Ojg5BWXIiE0Z17kIJD33qEFAdTucgiMl"
+
+
 # --- TRANSFORMS ---
 # Standard transforms for inference
 transform = transforms.Compose([
@@ -83,27 +89,52 @@ def create_conditional_bar_chart(df, model_name):
 
 @st.cache_resource
 def load_onnx_model():
-    """Loads the ONNX model session directly, bypassing memory-heavy PyTorch load."""
+    """
+    Loads the ONNX model session. If the file is not found, it attempts 
+    to download it from the specified Google Drive link.
+    """
     
-    # CRITICAL FIX: Only check for file existence, removing the strict size check
     if not os.path.exists(ONNX_PATH):
-        st.error(f"Critical Error: Optimized ONNX model '{ONNX_PATH}' not found. Please ensure the file is uploaded correctly.")
-        return None 
-    
-    # Optional check to confirm the file is seen and is not a zero-byte file
-    file_size_mb = os.path.getsize(ONNX_PATH) / (1024 * 1024)
-    if file_size_mb < 0.1: # Still perform a minimal check for a corrupt/empty file (< 100 KB)
-        st.error(f"Critical Error: Optimized ONNX model '{ONNX_PATH}' found but appears corrupt (Size: {file_size_mb:.2f} MB).")
-        return None
+        st.warning(f"Optimized ONNX model '{ONNX_PATH}' not found locally. Attempting to download from Google Drive...")
         
-    st.info(f"Model file '{ONNX_PATH}' found. Size: {file_size_mb:.2f} MB. Attempting to load.")
+        try:
+            with st.spinner(f"Downloading large model file ({ONNX_PATH}). This may take a moment..."):
+                # Use curl command to download the file directly
+                # -L follows redirects (necessary for drive links)
+                # -o specifies the output filename
+                download_command = f"curl -L '{DRIVE_URL}' -o '{ONNX_PATH}'"
+                
+                # Execute the download command
+                exit_code = os.system(download_command)
+                
+                if exit_code != 0:
+                    raise Exception(f"Download failed with exit code {exit_code}.")
+                
+            st.success(f"Model successfully downloaded as '{ONNX_PATH}'.")
 
-    try:
-        # Rely on the pre-exported ONNX model for high-performance, low-memory inference
-        return ort.InferenceSession(ONNX_PATH, providers=["CPUExecutionProvider"])
-    except Exception as e:
-        st.error(f"Failed to initialize ONNX Runtime session: {e}. Check if the file is a valid ONNX model.")
-        return None
+        except Exception as e:
+            st.error(f"Critical Error: Failed to download model from Google Drive. Ensure the shared link is public and accessible. Error: {e}")
+            st.error("Application cannot run without a valid ONNX classification model.")
+            return None
+
+    # Proceed with loading if the file now exists (either found locally or downloaded)
+    if os.path.exists(ONNX_PATH):
+        file_size_mb = os.path.getsize(ONNX_PATH) / (1024 * 1024)
+        if file_size_mb < 0.1: # Minimal check for a corrupt/empty file (< 100 KB)
+            st.error(f"Critical Error: Optimized ONNX model '{ONNX_PATH}' found but appears corrupt (Size: {file_size_mb:.2f} MB).")
+            return None
+            
+        st.info(f"Model file '{ONNX_PATH}' found. Size: {file_size_mb:.2f} MB. Attempting to load.")
+
+        try:
+            # Rely on the pre-exported ONNX model for high-performance, low-memory inference
+            return ort.InferenceSession(ONNX_PATH, providers=["CPUExecutionProvider"])
+        except Exception as e:
+            st.error(f"Failed to initialize ONNX Runtime session: {e}. Check if the file is a valid ONNX model.")
+            return None
+    
+    return None
+
 
 # --- LOAD MODELS ---
 # We ONLY load the ONNX model to save memory.
@@ -344,7 +375,7 @@ else:
                     <p style="margin: 5px 0 0 0; color: #cccccc;">AI Powered Diagnosis</p>
                 </div>
                 <div>
-                    <h1 style="font-size: 2em; margin: 0;">⚡</h1>
+                    <h1 style="font-size: 2em; margin: 0;'>⚡</h1>
                     <p style="margin: 5px 0 0 0; color: #cccccc;">Optimized with ONNX</p>
                 </div>
                 <div>
@@ -356,4 +387,3 @@ else:
     """, unsafe_allow_html=True)
     
     st.image("https://placehold.co/1000x500/121212/bb86fc?text=Upload+an+Image+to+Start+Analysis", use_container_width=True, caption="Sample Chest X-Ray Placeholder")
-
