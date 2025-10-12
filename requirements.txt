@@ -2,10 +2,13 @@ streamlit
 torch
 torchvision
 onnxruntime
-onnx  # <--- NEW ADDITION
-# Add any other packages your app uses:
+onnx
+opencv-python-headless  # <--- NEW ADDITION (Recommended for Streamlit Cloud)
+# If the line above fails, try:
+# opencv-python
+
+# Include any other packages your app uses:
 numpy
 pandas
-scikit-learn
 Pillow
 # ...
