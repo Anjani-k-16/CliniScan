@@ -102,8 +102,8 @@ def create_conditional_bar_chart(df, model_name):
     
     color_scale = alt.condition(
         alt.datum.Class == "PNEUMONIA",
-        alt.value("#d32f2f"), # Deeper red
-        alt.value("#43a047")  # Deeper green
+        alt.value("#cf6679"), # Dark mode soft red for warning
+        alt.value("#03dac6")  # Dark mode teal for success
     )
     
     # FIX: Removed cornerRadiusTop=4 to fix SchemaValidationError
@@ -184,45 +184,76 @@ onnx_session = load_onnx_model(pytorch_model, device)
 
 # --- STREAMLIT UI/LAYOUT ---
 
-# Custom CSS for better aesthetics
+# Custom CSS for dark mode aesthetics
 st.markdown("""
 <style>
+    /* Set the main app background to a dark color and text to white */
+    .stApp {
+        background-color: #121212; /* Deep Charcoal Background */
+        color: white;
+    }
+    
     /* Main title styling */
     .stApp > header {
         background-color: transparent;
     }
     h1 {
         font-size: 2.5em;
-        color: #0d47a1; /* Deep Blue for medical feel */
+        color: #bb86fc; /* Light Purple/Magenta accent for dark mode */
         text-align: center;
         margin-bottom: 0.5em;
         font-weight: 700;
     }
+    /* Default text color for the title markdown description */
+    p {
+        color: #e0e0e0;
+    }
     .stAlert {
         border-radius: 10px;
     }
-    .main-result-box {
-        padding: 20px;
-        border-radius: 15px;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-        text-align: center;
-        margin-bottom: 20px;
-    }
-    .pneumonia-detected {
-        background-color: #ffe0b2; /* Light orange for warning */
-        border-left: 8px solid #ff9800; /* Orange border */
-    }
-    .normal-finding {
-        background-color: #e8f5e9; /* Light green for success */
-        border-left: 8px solid #4caf50; /* Green border */
-    }
+    /* Section headers */
     .stMarkdown h2 {
-        color: #1e88e5; /* Lighter blue for section headers */
+        color: #03dac6; /* Teal accent for dark mode */
         font-weight: 500;
-        border-bottom: 2px solid #e0e0e0;
+        border-bottom: 2px solid #333333; /* Darker border */
         padding-bottom: 5px;
         margin-top: 30px;
     }
+    
+    /* Diagnostic Result Box Styling */
+    .main-result-box {
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4); /* Stronger shadow for dark mode */
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    
+    /* PNEUMONIA Warning Box */
+    .pneumonia-detected {
+        background-color: #2b1c1e; /* Dark background that matches the soft red accent */
+        border-left: 8px solid #cf6679; /* Soft red border */
+        color: white;
+    }
+    .pneumonia-detected h3, .pneumonia-detected p {
+        color: white;
+    }
+    
+    /* NORMAL Finding Box */
+    .normal-finding {
+        background-color: #1b2d2d; /* Dark background that matches the teal accent */
+        border-left: 8px solid #03dac6; /* Teal border */
+        color: white;
+    }
+    .normal-finding h3, .normal-finding p {
+        color: white;
+    }
+    
+    /* Sidebar styling for better contrast on dark background */
+    .css-1d3w5hv { /* This targets the sidebar content area */
+        color: #ffffff;
+    }
+
     /* Hide the default Streamlit footer */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
@@ -235,7 +266,7 @@ col_logo, col_title, col_info = st.columns([1, 4, 1])
 
 with col_title:
     st.title("⚕️ Cliniscan: Chest X-Ray AI Assistant")
-    st.markdown("<p style='text-align: center; color: #555;'>Pneumonia Classification & Explainability using PyTorch & ONNX</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: #cccccc;'>Pneumonia Classification & Explainability using PyTorch & ONNX</p>", unsafe_allow_html=True)
 st.markdown("---")
 
 
@@ -319,7 +350,6 @@ if uploaded_file:
                 # Use PyTorch model for Grad-CAM as ONNX doesn't support backward hooks
                 heatmap_img = generate_grad_cam(pytorch_model, target_layer, gradcam_tensor, img)
                 st.image(heatmap_img, caption="Areas contributing to diagnosis (Red/Yellow)", use_container_width=True)
-            st.balloons() 
         else:
             st.image(img, caption="Grad-CAM visualization (Model decided finding is normal)", use_container_width=True)
             st.info("Grad-CAM is typically most useful for positive findings (e.g., PNEUMONIA).")
@@ -383,14 +413,16 @@ if uploaded_file:
         st.markdown(
             f"Highest Confidence: **:{color_onnx}[{final_diagnosis_class}]** ({pred_prob_onnx*100:.4f}%)"
         )
-        df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
+        df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx)
     
         st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX Runtime"), use_container_width=True)
 
 # --- NO FILE UPLOADED STATE (Added a placeholder image) ---
 else:
     st.info("Upload an X-Ray image in the sidebar to begin the classification process.")
-    st.image("https://placehold.co/1000x500/0d47a1/ffffff?text=Cliniscan+AI+Assistant+%7C+Waiting+for+Image+Upload", use_container_width=True, caption="Sample Chest X-Ray Placeholder")
+    # Updated placeholder text color to be visible on dark background
+    st.image("https://placehold.co/1000x500/121212/bb86fc?text=Cliniscan+AI+Assistant+%7C+Waiting+for+Image+Upload", use_container_width=True, caption="Sample Chest X-Ray Placeholder")
+
 
 
 
