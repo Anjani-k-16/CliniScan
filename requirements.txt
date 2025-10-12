@@ -2,6 +2,7 @@ streamlit
 torch
 torchvision
 onnxruntime
+onnx  # <--- NEW ADDITION
 # Add any other packages your app uses:
 numpy
 pandas
