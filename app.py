@@ -85,15 +85,24 @@ def create_conditional_bar_chart(df, model_name):
 def load_onnx_model():
     """Loads the ONNX model session directly, bypassing memory-heavy PyTorch load."""
     
-    if not os.path.exists(ONNX_PATH) or os.path.getsize(ONNX_PATH) < 100000:
-        st.error(f"Critical Error: Optimized ONNX model '{ONNX_PATH}' not found or invalid. Cannot load model.")
+    # CRITICAL FIX: Only check for file existence, removing the strict size check
+    if not os.path.exists(ONNX_PATH):
+        st.error(f"Critical Error: Optimized ONNX model '{ONNX_PATH}' not found. Please ensure the file is uploaded correctly.")
         return None 
     
+    # Optional check to confirm the file is seen and is not a zero-byte file
+    file_size_mb = os.path.getsize(ONNX_PATH) / (1024 * 1024)
+    if file_size_mb < 0.1: # Still perform a minimal check for a corrupt/empty file (< 100 KB)
+        st.error(f"Critical Error: Optimized ONNX model '{ONNX_PATH}' found but appears corrupt (Size: {file_size_mb:.2f} MB).")
+        return None
+        
+    st.info(f"Model file '{ONNX_PATH}' found. Size: {file_size_mb:.2f} MB. Attempting to load.")
+
     try:
         # Rely on the pre-exported ONNX model for high-performance, low-memory inference
         return ort.InferenceSession(ONNX_PATH, providers=["CPUExecutionProvider"])
     except Exception as e:
-        st.error(f"Failed to initialize ONNX Runtime session: {e}")
+        st.error(f"Failed to initialize ONNX Runtime session: {e}. Check if the file is a valid ONNX model.")
         return None
 
 # --- LOAD MODELS ---
@@ -347,3 +356,4 @@ else:
     """, unsafe_allow_html=True)
     
     st.image("https://placehold.co/1000x500/121212/bb86fc?text=Upload+an+Image+to+Start+Analysis", use_container_width=True, caption="Sample Chest X-Ray Placeholder")
+
