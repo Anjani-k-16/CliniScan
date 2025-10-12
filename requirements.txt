@@ -1,7 +1,8 @@
 streamlit
 torch
 torchvision
-# Add any other libraries you use in your project here:
+onnxruntime
+# Add any other packages your app uses:
 numpy
 pandas
 scikit-learn
