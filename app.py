@@ -11,9 +11,17 @@ import os
 import onnx 
 import cv2 
 import io 
+import gdown # IMPORTANT: Added for downloading the large model file
 
-
+# --- Configuration ---
 device = torch.device("cpu") 
+
+# --- Model Artifact Location ---
+MODEL_PTH_PATH = "model.pth"
+# UNIQUE GOOGLE DRIVE FILE ID:
+# This ID is for your model.pth file hosted externally.
+GOOGLE_DRIVE_FILE_ID = "1FN8UG5pJiKPT8_yE8CkvlTC2DthCxbVR"
+# -----------------------------
 
 
 transform_gradcam = transforms.Compose([
@@ -56,6 +64,7 @@ def generate_grad_cam(model, target_layer, img_tensor, original_img):
     hook_handle_grad.remove()
     
     if not gradients:
+        # Fallback if gradients are empty
         return Image.new('RGB', (original_img.width, original_img.height), color = 'gray')
 
     pooled_gradients = torch.mean(gradients[0], dim=[0, 2, 3])
@@ -65,12 +74,17 @@ def generate_grad_cam(model, target_layer, img_tensor, original_img):
     
     heatmap = torch.mean(feature_map, dim=0).relu()
     
-    heatmap /= torch.max(heatmap)
+    # Normalize the heatmap
+    if torch.max(heatmap) > 0:
+        heatmap /= torch.max(heatmap)
+    
     heatmap_np = heatmap.detach().cpu().numpy() 
     
+    # Resize and colorize
     heatmap_resized = cv2.resize(heatmap_np, (original_img.width, original_img.height))
     heatmap_colored = cv2.applyColorMap(np.uint8(255 * heatmap_resized), cv2.COLORMAP_JET)
     
+    # Blend with original image
     img_np = np.array(original_img.convert('RGB'))
     img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR) 
     
@@ -112,25 +126,50 @@ def create_conditional_bar_chart(df, model_name):
 @st.cache_resource
 def load_pytorch_model():
     """Loads the trained PyTorch model structure and weights."""
+    
+    # --- Check for model file and download if missing ---
+    if not os.path.exists(MODEL_PTH_PATH):
+        try:
+            st.warning("Model weights not found locally. Downloading from Google Drive...")
+            gdown.download(id=GOOGLE_DRIVE_FILE_ID, output=MODEL_PTH_PATH, quiet=False)
+            st.success("Download complete!")
+        except Exception as e:
+            st.error(f"Failed to download model from Google Drive. Check the file ID and permissions. Error: {e}")
+            return None 
+    # ---------------------------------------------------
+
     model = models.resnet18(weights=None)
     model.fc = nn.Linear(model.fc.in_features, 2)
-    model.load_state_dict(torch.load("model.pth", map_location=device))
+    
+    try:
+        model.load_state_dict(torch.load(MODEL_PTH_PATH, map_location=device))
+    except Exception as e:
+        st.error(f"Failed to load model weights. Ensure '{MODEL_PTH_PATH}' is a valid PyTorch state dict. Error: {e}")
+        return None
+        
     model.to(device)
     model.eval()
     return model
 
 pytorch_model = load_pytorch_model()
 
+# Handle failure in model loading
+if pytorch_model is None:
+    st.stop()
+
+
 @st.cache_resource
 def load_onnx_model(_model_pt, device):
     """Loads or exports the ONNX model."""
     ONNX_PATH = "model.onnx"
     
+    # We only re-export if the file doesn't exist or is obviously corrupted
     if not os.path.exists(ONNX_PATH) or os.path.getsize(ONNX_PATH) < 100000:
         
         dummy_input = torch.randn(1, 3, 224, 224, device=device, dtype=torch.float32)
 
         try:
+            # Export the PyTorch model to ONNX format
             torch.onnx.export(
                 _model_pt, 
                 dummy_input,
@@ -143,13 +182,20 @@ def load_onnx_model(_model_pt, device):
                 dynamic_axes={'input': {0: 'batch_size'},
                               'output': {0: 'batch_size'}}
             )
+            # Basic ONNX check
             onnx_model = onnx.load(ONNX_PATH)
             onnx.checker.check_model(onnx_model)
         except Exception as e:
             st.error(f"Failed to export ONNX model: {e}")
             return None 
 
-    return ort.InferenceSession(ONNX_PATH, providers=["CPUExecutionProvider"])
+    # Load ONNX inference session
+    try:
+        return ort.InferenceSession(ONNX_PATH, providers=["CPUExecutionProvider"])
+    except Exception as e:
+        st.error(f"Failed to load ONNX session: {e}")
+        return None
+
 
 onnx_session = load_onnx_model(pytorch_model, device)
 
@@ -168,25 +214,29 @@ if uploaded_file:
     image_bytes = uploaded_file.read()
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     
- 
-    current_model = load_pytorch_model()
+    # We use the cached model, but define target layer here
+    current_model = pytorch_model 
     target_layer = current_model.layer4[-1].conv2 
     
     img_tensor = transform(img).unsqueeze(0).to(device).to(torch.float32) 
     gradcam_tensor = transform_gradcam(img).unsqueeze(0).to(device).to(torch.float32)
     gradcam_tensor.requires_grad_(True)
     
-   
+    
+    # --- PYTORCH PREDICTION ---
     outputs_pt = current_model(img_tensor)
     probs_pt = torch.softmax(outputs_pt, dim=1)[0]
     pred_class_pt = class_names[torch.argmax(probs_pt).item()]
 
-   
+    
+    # --- ONNX PREDICTION ---
     x = transform(img).unsqueeze(0).numpy().astype(np.float32)
     outputs_onnx = onnx_session.run(None, {"input": x})[0][0]
+    # Apply softmax manually for ONNX output
     probs_onnx = np.exp(outputs_onnx) / np.sum(np.exp(outputs_onnx))
     
-   
+    
+    # --- FINAL DIAGNOSIS (Based on ONNX as it's typically faster) ---
     final_pred_idx = np.argmax(probs_onnx)
     final_diagnosis_class = class_names[final_pred_idx]
     final_diagnosis_color = get_status_color(final_diagnosis_class)
@@ -195,13 +245,13 @@ if uploaded_file:
     
     st.markdown("### Classification Result:")
     
-  
+ 
     if final_diagnosis_class == "PNEUMONIA":
         st.markdown(f"## :{final_diagnosis_color}[PNEUMONIA DETECTED]")
         st.warning("Action Recommended: Please consult a medical professional immediately with this result.")
     else:
         st.markdown(f"## :{final_diagnosis_color}[NORMAL FINDING]")
-      
+    
         st.info("**Model Analysis:** No Sign of Pneumonia Detected.") 
 
     st.markdown(f"Confidence: **{max_prob*100:.2f}%**")
@@ -227,7 +277,7 @@ if uploaded_file:
     st.markdown("### Model Prediction Scores")
     col_pt, col_onnx = st.columns(2)
 
-  
+ 
     with col_pt:
         st.markdown("#### PyTorch Prediction")
         pred_idx_pt = torch.argmax(probs_pt).item()
@@ -250,6 +300,6 @@ if uploaded_file:
             f"Highest Confidence: **:{color_onnx}[{final_diagnosis_class}]** ({pred_prob_onnx*100:.4f}%)"
         )
         df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
-  
+ 
         st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
 
