@@ -1,0 +1,8 @@
+streamlit
+torch
+# Include any other packages your app uses:
+numpy
+pandas
+scikit-learn
+# torchvision (only if you use it for image/video tasks)
+# <Other_Package_Name>
