@@ -1,14 +1,11 @@
 streamlit
 torch
 torchvision
-onnxruntime
-onnx
-opencv-python-headless  # <--- NEW ADDITION (Recommended for Streamlit Cloud)
-# If the line above fails, try:
-# opencv-python
-
-# Include any other packages your app uses:
-numpy
 pandas
+onnxruntime
+numpy
+altair
 Pillow
-# ...
+opencv-python-headless # Use headless version of OpenCV for deployment environments
+gdown
+onnx
