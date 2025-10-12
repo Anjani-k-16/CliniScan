@@ -106,22 +106,6 @@ def create_conditional_bar_chart(df, model_name):
         alt.value("#03dac6")  # Dark mode teal for success
     )
     
-    # Setting dark theme for Altair chart
-    chart_theme = {
-        "config": {
-            "title": {"color": "#ffffff"},
-            "axis": {
-                "labelColor": "#e0e0e0",
-                "titleColor": "#e0e0e0",
-                "gridColor": "#333333",
-                "domainColor": "#e0e0e0",
-            },
-            "view": {
-                "stroke": "transparent"
-            }
-        }
-    }
-    
     chart = alt.Chart(df).mark_bar(size=40).encode(
         x=alt.X("Class", sort="-y", title=None, axis=alt.Axis(labels=True, title=None)),
         y=alt.Y("Probability", axis=alt.Axis(format=".0%", title="Probability")),
@@ -131,7 +115,21 @@ def create_conditional_bar_chart(df, model_name):
         title=f"{model_name} Class Probabilities"
     ).interactive()
     
-    return chart.configure_view(stroke=None).configure(**chart_theme)
+    # --- FIX: Apply dark mode configurations using direct method calls to avoid SchemaValidationError ---
+    chart = chart.configure_view(
+        stroke='transparent' # Remove chart border
+    ).configure_title(
+        fontSize=16,
+        color='#ffffff' # White title color
+    ).configure_axis(
+        labelColor='#e0e0e0', # Light grey axis labels
+        titleColor='#e0e0e0', # Light grey axis titles
+        gridColor='#333333',  # Dark grid lines
+        domainColor='#e0e0e0' # Axis line color
+    )
+    # --- END FIX ---
+    
+    return chart
 
 # --- MODEL LOADING (CASHED) ---
 
@@ -428,8 +426,7 @@ if uploaded_file:
         st.markdown(
             f"Highest Confidence: **:{color_onnx}[{final_diagnosis_class}]** ({pred_prob_onnx*100:.4f}%)"
         )
-        # FIX: Added missing closing curly brace '}'
-        df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
+        df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx.astype(float)})
     
         st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX Runtime"), use_container_width=True)
 
@@ -438,6 +435,7 @@ else:
     st.info("Upload an X-Ray image in the sidebar to begin the classification process.")
     # Updated placeholder text color to be visible on dark background
     st.image("https://placehold.co/1000x500/121212/bb86fc?text=Cliniscan+AI+Assistant+%7C+Waiting+for+Image+Upload", use_container_width=True, caption="Sample Chest X-Ray Placeholder")
+
 
 
 
