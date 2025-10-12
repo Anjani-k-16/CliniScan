@@ -6,125 +6,27 @@ from PIL import Image
 import pandas as pd
 import onnxruntime as ort
 import numpy as np
-import altair as alt 
-import os 
-import onnx 
-import cv2 
-import io 
-import gdown 
+import altair as alt
+import os
+import onnx
+import cv2
+import io
+from pathlib import Path
 
-# --- UI Configuration (MUST BE FIRST) ---
+# --- CONFIGURATION & PAGE SETUP ---
 st.set_page_config(
-    page_title="Cliniscan X-Ray Classifier",
-    layout="wide",
-    initial_sidebar_state="expanded",
+    page_title="Cliniscan: Pneumonia AI Classifier",
+    page_icon="⚕️",
+    layout="wide", # Use wide layout for a better dashboard feel
+    initial_sidebar_state="expanded"
 )
 
-def inject_custom_css():
-    """Injects custom CSS for a darker, modern, and cleaner look."""
-    st.markdown("""
-        <style>
-            /* Global Streamlit Overrides */
-            #MainMenu {visibility: hidden;}
-            footer {visibility: hidden;}
-            header {visibility: hidden;}
+# --- GLOBAL VARS ---
+device = torch.device("cpu")
+class_names = ["NORMAL", "PNEUMONIA"]
+MODEL_PATH = "model.pth" # Using the correct file name found in your repository
 
-            /* Custom Styling */
-            .stApp {
-                background-color: #0d1117; /* Dark background */
-                color: #c9d1d9; /* Light text */
-            }
-            
-            /* Make titles look professional */
-            h1 {
-                color: #58a6ff; /* Blue highlight color */
-                font-family: 'Inter', sans-serif;
-                text-align: center;
-                padding-bottom: 10px;
-                border-bottom: 2px solid #21262d;
-            }
-            h3 {
-                color: #c9d1d9; 
-                border-bottom: 1px solid #21262d;
-                padding-bottom: 5px;
-                margin-top: 20px;
-            }
-            h4 {
-                color: #58a6ff;
-            }
-
-            /* Style the file uploader */
-            .stFileUploader {
-                border: 2px dashed #30363d;
-                border-radius: 10px;
-                padding: 20px;
-                text-align: center;
-                transition: background-color 0.3s;
-            }
-            .stFileUploader > div > label {
-                color: #58a6ff;
-                font-size: 1.1em;
-            }
-
-            /* Style Warning and Info messages */
-            div[data-testid="stAlert"] {
-                border-left: 5px solid;
-                border-radius: 5px;
-            }
-            
-            /* Custom styling for the main result banner */
-            .result-banner {
-                text-align: center;
-                padding: 15px;
-                border-radius: 10px;
-                margin-top: 10px;
-                font-size: 1.5em;
-                font-weight: bold;
-                background-color: #21262d;
-                border: 1px solid #30363d;
-            }
-            .result-banner.PNEUMONIA {
-                color: #f85149; /* Red for warning */
-                border-left-color: #f85149;
-            }
-            .result-banner.NORMAL {
-                color: #3fb950; /* Green for safe */
-                border-left-color: #3fb950;
-            }
-            
-            /* Style for Streamlit Tabs */
-            div[data-baseweb="tab-list"] {
-                gap: 15px;
-            }
-            button[data-baseweb="tab"] {
-                background-color: #161b22; /* Darker tab background */
-                color: #c9d1d9 !important; 
-                border-radius: 8px 8px 0 0;
-                padding: 10px 20px;
-                border: 1px solid #30363d;
-                border-bottom: none;
-            }
-            button[data-baseweb="tab"][aria-selected="true"] {
-                background-color: #21262d; /* Selected tab background */
-                color: #58a6ff !important;
-                border-bottom: 2px solid #58a6ff;
-            }
-
-        </style>
-    """, unsafe_allow_html=True)
-
-inject_custom_css()
-# --- End UI Configuration ---
-
-
-# --- Model Configuration ---
-device = torch.device("cpu") 
-
-MODEL_PTH_PATH = "model.pth"
-GOOGLE_DRIVE_FILE_ID = "1FN8UG5pJiKPT8_yE8CkvlTC2DthCxbVR"
-# -----------------------------
-
-
+# --- TRANSFORMS (Kept the same for functionality) ---
 transform_gradcam = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
@@ -136,13 +38,12 @@ transform = transforms.Compose([
     transforms.Normalize([0.485,0.456,0.406],[0.229,0.224,0.225])
 ])
 
-class_names = ["NORMAL", "PNEUMONIA"]
-
+# --- UTILITY FUNCTIONS ---
 
 def generate_grad_cam(model, target_layer, img_tensor, original_img):
     """Generates a heat map using Grad-CAM."""
     model.eval()
-    target_class_idx = 1 
+    target_class_idx = 1
     
     feature_maps = []
     def forward_hook(module, input, output):
@@ -158,13 +59,14 @@ def generate_grad_cam(model, target_layer, img_tensor, original_img):
     output = model(img_tensor)
     model.zero_grad()
     target_score = output[0, target_class_idx]
-    target_score.backward(retain_graph=True) 
+    # Perform backward pass only if we have a target score
+    if target_score.numel() > 0:
+        target_score.backward(retain_graph=True)
     
     hook_handle_fm.remove()
     hook_handle_grad.remove()
     
     if not gradients:
-        # Return a simple placeholder if Grad-CAM fails
         return Image.new('RGB', (original_img.width, original_img.height), color = 'gray')
 
     pooled_gradients = torch.mean(gradients[0], dim=[0, 2, 3])
@@ -174,16 +76,14 @@ def generate_grad_cam(model, target_layer, img_tensor, original_img):
     
     heatmap = torch.mean(feature_map, dim=0).relu()
     
-    if torch.max(heatmap) > 0:
-        heatmap /= torch.max(heatmap)
-    
-    heatmap_np = heatmap.detach().cpu().numpy() 
+    heatmap /= torch.max(heatmap)
+    heatmap_np = heatmap.detach().cpu().numpy()
     
     heatmap_resized = cv2.resize(heatmap_np, (original_img.width, original_img.height))
     heatmap_colored = cv2.applyColorMap(np.uint8(255 * heatmap_resized), cv2.COLORMAP_JET)
     
     img_np = np.array(original_img.convert('RGB'))
-    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR) 
+    img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
     
     superimposed_img = cv2.addWeighted(img_bgr, 0.5, heatmap_colored, 0.5, 0)
     
@@ -197,67 +97,49 @@ def get_status_color(class_name):
     return "red" if class_name == "PNEUMONIA" else "green"
 
 def create_conditional_bar_chart(df, model_name):
-    """Creates a professional VERTICAL Altair bar chart with conditional colors and styling."""
-    
-    # Define colors matching the CSS theme for consistency
-    red_color = "#f85149"
-    green_color = "#3fb950"
+    """Creates a VERTICAL Altair bar chart with conditional colors."""
     
     color_scale = alt.condition(
         alt.datum.Class == "PNEUMONIA",
-        alt.value(red_color), 
-        alt.value(green_color) 
+        alt.value("#d32f2f"), # Deeper red
+        alt.value("#43a047")  # Deeper green
     )
-
-    chart = alt.Chart(df).mark_bar(
-        size=40, # Make bars thinner and more structured
-        cornerRadiusTopLeft=4, 
-        cornerRadiusTopRight=4,
-        opacity=0.9
-    ).encode(
-        x=alt.X("Class", sort="-y", title=None, axis=alt.Axis(labels=True, title=None)), 
-        y=alt.Y("Probability", axis=alt.Axis(format=".0%", title="Confidence")), # Changed title to Confidence
+    
+    chart = alt.Chart(df).mark_bar(size=40, cornerRadiusTop=4).encode(
+        x=alt.X("Class", sort="-y", title=None, axis=alt.Axis(labels=True, title=None)),
+        y=alt.Y("Probability", axis=alt.Axis(format=".0%", title="Probability")),
         color=color_scale,
-        tooltip=["Class", alt.Tooltip("Probability", format=".4%")] 
+        tooltip=["Class", alt.Tooltip("Probability", format=".4%")]
     ).properties(
-        title=f"{model_name} Prediction" # Shorter, cleaner title
+        title=f"{model_name} Class Probabilities"
     ).interactive()
     
     return chart
 
+# --- MODEL LOADING (CASHED) ---
 
 @st.cache_resource
 def load_pytorch_model():
     """Loads the trained PyTorch model structure and weights."""
     
-    # --- Check for model file and download if missing ---
-    if not os.path.exists(MODEL_PTH_PATH):
-        try:
-            st.warning("Model weights not found locally. Downloading from Google Drive...")
-            gdown.download(id=GOOGLE_DRIVE_FILE_ID, output=MODEL_PTH_PATH, quiet=False)
-            st.success("Download complete!")
-        except Exception as e:
-            st.error(f"Failed to download model from Google Drive. Check the file ID and permissions. Error: {e}")
-            return None 
+    if not Path(MODEL_PATH).exists():
+        st.error(f"Model file not found: '{MODEL_PATH}'. Please ensure it is uploaded and tracked with Git LFS.")
+        return None
 
     model = models.resnet18(weights=None)
     model.fc = nn.Linear(model.fc.in_features, 2)
-    
+    # Using the correct model name "model.pth"
     try:
-        model.load_state_dict(torch.load(MODEL_PTH_PATH, map_location=device))
+        model.load_state_dict(torch.load(MODEL_PATH, map_location=device))
+        model.to(device)
+        model.eval()
+        return model
     except Exception as e:
-        st.error(f"Failed to load model weights. Error: {e}")
+        st.error(f"Error loading model weights from '{MODEL_PATH}'. Check file integrity and Git LFS status: {e}")
         return None
-        
-    model.to(device)
-    model.eval()
-    return model
+
 
 pytorch_model = load_pytorch_model()
-
-if pytorch_model is None:
-    st.stop()
-
 
 @st.cache_resource
 def load_onnx_model(_model_pt, device):
@@ -265,6 +147,8 @@ def load_onnx_model(_model_pt, device):
     ONNX_PATH = "model.onnx"
     
     if not os.path.exists(ONNX_PATH) or os.path.getsize(ONNX_PATH) < 100000:
+        
+        st.warning(f"ONNX model '{ONNX_PATH}' not found or is a placeholder. Attempting to export from PyTorch...")
         
         dummy_input = torch.randn(1, 3, 224, 224, device=device, dtype=torch.float32)
 
@@ -283,132 +167,226 @@ def load_onnx_model(_model_pt, device):
             )
             onnx_model = onnx.load(ONNX_PATH)
             onnx.checker.check_model(onnx_model)
+            st.success("Successfully exported and checked ONNX model.")
         except Exception as e:
             st.error(f"Failed to export ONNX model: {e}")
             return None 
 
-    try:
-        return ort.InferenceSession(ONNX_PATH, providers=["CPUExecutionProvider"])
-    except Exception as e:
-        st.error(f"Failed to load ONNX session: {e}")
-        return None
+    return ort.InferenceSession(ONNX_PATH, providers=["CPUExecutionProvider"])
 
+# --- RUN MODEL LOADING AND CHECK FOR ERRORS ---
+if pytorch_model is None:
+    st.stop()
 
 onnx_session = load_onnx_model(pytorch_model, device)
 
-if onnx_session is None:
-    st.stop()
-# --- End Model Configuration ---
+# --- STREAMLIT UI/LAYOUT ---
+
+# Custom CSS for better aesthetics
+st.markdown("""
+<style>
+    /* Main title styling */
+    .stApp > header {
+        background-color: transparent;
+    }
+    h1 {
+        font-size: 2.5em;
+        color: #0d47a1; /* Deep Blue for medical feel */
+        text-align: center;
+        margin-bottom: 0.5em;
+        font-weight: 700;
+    }
+    .stAlert {
+        border-radius: 10px;
+    }
+    .main-result-box {
+        padding: 20px;
+        border-radius: 15px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        text-align: center;
+        margin-bottom: 20px;
+    }
+    .pneumonia-detected {
+        background-color: #ffe0b2; /* Light orange for warning */
+        border-left: 8px solid #ff9800; /* Orange border */
+    }
+    .normal-finding {
+        background-color: #e8f5e9; /* Light green for success */
+        border-left: 8px solid #4caf50; /* Green border */
+    }
+    .stMarkdown h2 {
+        color: #1e88e5; /* Lighter blue for section headers */
+        font-weight: 500;
+        border-bottom: 2px solid #e0e0e0;
+        padding-bottom: 5px;
+        margin-top: 30px;
+    }
+    /* Hide the default Streamlit footer */
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+</style>
+""", unsafe_allow_html=True)
 
 
-st.title("Cliniscan: Chest X-Ray Pneumonia Classifier") 
-st.markdown("A deep learning tool for instant diagnosis and explainability.")
+# --- MAIN HEADER ---
+col_logo, col_title, col_info = st.columns([1, 4, 1])
+
+with col_title:
+    st.title("⚕️ Cliniscan: Chest X-Ray AI Assistant")
+    st.markdown("<p style='text-align: center; color: #555;'>Pneumonia Classification & Explainability using PyTorch & ONNX</p>", unsafe_allow_html=True)
+st.markdown("---")
 
 
-# Center the uploader by using columns
-col_left, col_upload, col_right = st.columns([1, 2, 1])
+# --- SIDEBAR FOR UPLOADER ---
+with st.sidebar:
+    st.header("Upload X-Ray Image")
+    st.markdown("Upload a standard PA/AP chest X-ray image for AI-driven analysis.")
+    uploaded_file = st.file_uploader("Choose a file (JPG, PNG)", type=["jpg","jpeg","png"])
+    
+    st.markdown("---")
+    st.subheader("System Status")
+    
+    # Show loading status for models
+    if pytorch_model:
+        st.success("PyTorch Model (ResNet-18) Loaded.")
+    else:
+        st.error("PyTorch Model Failed to Load.")
 
-with col_upload:
-    uploaded_file = st.file_uploader("Upload Chest X-ray Image (JPG/PNG)", type=["jpg","jpeg","png"])
-    if not uploaded_file:
-         st.info("Awaiting X-ray upload for analysis...")
+    if onnx_session:
+        st.success("ONNX Runtime Engine Ready.")
+    else:
+        st.warning("ONNX Loading Failed. Falling back to PyTorch-only inference.")
+    
+    st.markdown("---")
+    st.caption("Developed for educational & research purposes.")
 
 
+# --- CORE APPLICATION LOGIC ---
 if uploaded_file:
+    
+    # --- Data Prep ---
     image_bytes = uploaded_file.read()
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     
-    current_model = pytorch_model 
+    current_model = load_pytorch_model()
     target_layer = current_model.layer4[-1].conv2 
     
     img_tensor = transform(img).unsqueeze(0).to(device).to(torch.float32) 
     gradcam_tensor = transform_gradcam(img).unsqueeze(0).to(device).to(torch.float32)
     gradcam_tensor.requires_grad_(True)
     
-    
-    # --- PYTORCH PREDICTION (for Grad-CAM) ---
+    # --- PyTorch Prediction ---
     outputs_pt = current_model(img_tensor)
     probs_pt = torch.softmax(outputs_pt, dim=1)[0]
     pred_class_pt = class_names[torch.argmax(probs_pt).item()]
 
-    
-    # --- ONNX PREDICTION (Final Result) ---
-    x = transform(img).unsqueeze(0).numpy().astype(np.float32)
-    outputs_onnx = onnx_session.run(None, {"input": x})[0][0]
-    probs_onnx = np.exp(outputs_onnx) / np.sum(np.exp(outputs_onnx))
-    
-    
+    # --- ONNX Prediction ---
+    if onnx_session:
+        x = transform(img).unsqueeze(0).numpy().astype(np.float32)
+        outputs_onnx = onnx_session.run(None, {"input": x})[0][0]
+        # Softmax for ONNX output
+        probs_onnx = np.exp(outputs_onnx) / np.sum(np.exp(outputs_onnx))
+    else:
+        # Fallback to PyTorch prediction if ONNX failed
+        probs_onnx = probs_pt.detach().cpu().numpy()
+
+
+    # --- Final Diagnosis (Using ONNX/Fallback) ---
     final_pred_idx = np.argmax(probs_onnx)
     final_diagnosis_class = class_names[final_pred_idx]
+    final_diagnosis_color = get_status_color(final_diagnosis_class)
     max_prob = probs_onnx[final_pred_idx]
     
-    st.markdown("---")
     
-    # --- DISPLAY FINAL DIAGNOSIS BANNER ---
-    if final_diagnosis_class == "PNEUMONIA":
-        st.markdown(
-            f"<div class='result-banner PNEUMONIA'>⚠️ PNEUMONIA DETECTED | Confidence: {max_prob*100:.2f}%</div>",
-            unsafe_allow_html=True
-        )
-        st.warning("Action Recommended: Please consult a medical professional immediately with this result.")
-    else:
-        st.markdown(
-            f"<div class='result-banner NORMAL'>✅ NORMAL FINDING | Confidence: {max_prob*100:.2f}%</div>",
-            unsafe_allow_html=True
-        )
-        st.info("**Model Analysis:** No Sign of Pneumonia Detected.") 
-    st.markdown("---")
+    # --- RESULT SUMMARY & TOP ROW LAYOUT ---
+    st.markdown("## 🔬 Diagnosis & Visualization")
+
+    # Use 3 columns for a clean presentation
+    col_img, col_heatmap, col_diagnosis = st.columns([1.5, 1.5, 1])
+
+    with col_img:
+        st.subheader("Uploaded X-ray")
+        st.image(img, use_container_width=True)
+
+    with col_heatmap:
+        st.subheader("Model Focus (Grad-CAM)")
+        if final_diagnosis_class == "PNEUMONIA":
+            with st.spinner("Generating Explainability Heatmap..."):
+                # Use PyTorch model for Grad-CAM as ONNX doesn't support backward hooks
+                heatmap_img = generate_grad_cam(current_model, target_layer, gradcam_tensor, img)
+                st.image(heatmap_img, caption="Areas contributing to diagnosis (Red/Yellow)", use_container_width=True)
+            st.balloons() 
+        else:
+            st.image(img, caption="Grad-CAM visualization (Model decided finding is normal)", use_container_width=True)
+            st.info("Grad-CAM is typically most useful for positive findings (e.g., PNEUMONIA).")
 
 
-    # --- IMPLEMENTING TABS FOR DASHBOARD VIEW ---
-    tab_visual, tab_scores = st.tabs(["🖼️ Visual Analysis", "📊 Confidence Scores"])
-
-    with tab_visual:
-        st.markdown("### Visualization & Explainability")
+    with col_diagnosis:
+        st.subheader("Classification Result")
         
-        col_img, col_gradcam = st.columns(2)
-        
-        with col_img:
-            st.markdown("#### Uploaded X-ray Image")
-            st.image(img, use_container_width=True)
+        # Enhanced Result Box
+        if final_diagnosis_class == "PNEUMONIA":
+            box_class = "pneumonia-detected"
+            icon = "🚨"
+            message = "⚠️ **IMMEDIATE ACTION:** Consultation with a medical professional is strongly recommended."
+            st.error(message)
+        else:
+            box_class = "normal-finding"
+            icon = "✅"
+            message = "**Model Finding:** No Sign of Pneumonia Detected on this image."
+            st.success(message)
             
-        with col_gradcam:
-            st.markdown("#### Model Focus (Grad-CAM)")
-            if pred_class_pt == "PNEUMONIA":
-                with st.spinner("Generating Explainability Heatmap..."):
-                    heatmap_img = generate_grad_cam(current_model, target_layer, gradcam_tensor, img)
-                st.image(heatmap_img, caption="Areas contributing to PNEUMONIA diagnosis (Red/Yellow)", use_container_width=True)
-            else:
-                st.info("Grad-CAM visualization is typically most useful for positive (PNEUMONIA) cases and is skipped for NORMAL findings.")
-
-
-    with tab_scores:
-        st.markdown("### Deep Learning Model Scores")
+        st.markdown(f"""
+        <div class="main-result-box {box_class}">
+            <h3>{icon} {final_diagnosis_class}</h3>
+            <p style="font-size: 1.5em; font-weight: bold;">
+                Confidence: {max_prob*100:.2f}%
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
         
-        col_pt_chart, col_onnx_chart = st.columns(2)
+        st.markdown("---")
+        st.caption("Disclaimer: AI models are assistive tools. Clinical interpretation is required.")
 
-        with col_pt_chart:
-            st.markdown("#### PyTorch Prediction Details")
-            pred_idx_pt = torch.argmax(probs_pt).item()
-            pred_class_pt = class_names[pred_idx_pt]
-            pred_prob_pt = probs_pt[pred_idx_pt].item()
-            color_pt = get_status_color(pred_class_pt)
 
-            st.markdown(
-                f"Highest Confidence: **:{color_pt}[{pred_class_pt}]** ({pred_prob_pt*100:.4f}%)"
-            )
-            df_pt = pd.DataFrame({"Class": class_names, "Probability":[p.item() for p in probs_pt]})
-            st.altair_chart(create_conditional_bar_chart(df_pt, "PyTorch"), use_container_width=True) 
+    # --- BOTTOM ROW LAYOUT (Charts) ---
+    st.markdown("---")
+    st.markdown("## 📊 Detailed Prediction Scores")
 
-        with col_onnx_chart:
-            st.markdown("#### ONNX Prediction Details")
-            pred_prob_onnx = probs_onnx[final_pred_idx]
-            color_onnx = get_status_color(final_diagnosis_class)
+    col_pt, col_onnx = st.columns(2)
 
-            st.markdown(
-                f"Highest Confidence: **:{color_onnx}[{final_diagnosis_class}]** ({pred_prob_onnx*100:.4f}%)"
-            )
-            df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
-            st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
+    # PyTorch Chart
+    with col_pt:
+        st.markdown("### PyTorch Prediction")
+        pred_idx_pt = torch.argmax(probs_pt).item()
+        pred_class_pt_display = class_names[pred_idx_pt]
+        pred_prob_pt = probs_pt[pred_idx_pt].item()
+        color_pt = get_status_color(pred_class_pt_display)
+
+        st.markdown(
+            f"Highest Confidence: **:{color_pt}[{pred_class_pt_display}]** ({pred_prob_pt*100:.4f}%)"
+        )
+        df_pt = pd.DataFrame({"Class": class_names, "Probability":[p.item() for p in probs_pt]})
+    
+        st.altair_chart(create_conditional_bar_chart(df_pt, "PyTorch"), use_container_width=True) 
+
+    # ONNX Chart
+    with col_onnx:
+        st.markdown("### ONNX Prediction (Optimized)")
+        pred_prob_onnx = probs_onnx[final_pred_idx]
+        color_onnx = get_status_color(final_diagnosis_class)
+
+        st.markdown(
+            f"Highest Confidence: **:{color_onnx}[{final_diagnosis_class}]** ({pred_prob_onnx*100:.4f}%)"
+        )
+        df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
+    
+        st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX Runtime"), use_container_width=True)
+
+# --- NO FILE UPLOADED STATE (Added a placeholder image) ---
+else:
+    st.info("Upload an X-Ray image in the sidebar to begin the classification process.")
+    st.image("https://placehold.co/1000x500/0d47a1/ffffff?text=Cliniscan+AI+Assistant+%7C+Waiting+for+Image+Upload", use_container_width=True, caption="Sample Chest X-Ray Placeholder")
+
 
 
