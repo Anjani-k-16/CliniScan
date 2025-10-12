@@ -268,19 +268,19 @@ if uploaded_file:
     image_bytes = uploaded_file.read()
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     
-    current_model = load_pytorch_model()
-    target_layer = current_model.layer4[-1].conv2 
+    # Use the globally cached pytorch_model. target_layer must be defined inside the block.
+    target_layer = pytorch_model.layer4[-1].conv2 
     
     img_tensor = transform(img).unsqueeze(0).to(device).to(torch.float32) 
     gradcam_tensor = transform_gradcam(img).unsqueeze(0).to(device).to(torch.float32)
     gradcam_tensor.requires_grad_(True)
     
-    # --- PyTorch Prediction ---
-    outputs_pt = current_model(img_tensor)
+    # --- PyTorch Prediction (Used for Grad-CAM logic) ---
+    outputs_pt = pytorch_model(img_tensor)
     probs_pt = torch.softmax(outputs_pt, dim=1)[0]
     pred_class_pt = class_names[torch.argmax(probs_pt).item()]
 
-    # --- ONNX Prediction ---
+    # --- ONNX Prediction (Used for Final Diagnosis) ---
     if onnx_session:
         x = transform(img).unsqueeze(0).numpy().astype(np.float32)
         outputs_onnx = onnx_session.run(None, {"input": x})[0][0]
@@ -310,10 +310,12 @@ if uploaded_file:
 
     with col_heatmap:
         st.subheader("Model Focus (Grad-CAM)")
-        if final_diagnosis_class == "PNEUMONIA":
+        
+        # Grad-CAM is now triggered if the PyTorch model (the source of the hooks) predicts PNEUMONIA.
+        if pred_class_pt == "PNEUMONIA":
             with st.spinner("Generating Explainability Heatmap..."):
                 # Use PyTorch model for Grad-CAM as ONNX doesn't support backward hooks
-                heatmap_img = generate_grad_cam(current_model, target_layer, gradcam_tensor, img)
+                heatmap_img = generate_grad_cam(pytorch_model, target_layer, gradcam_tensor, img)
                 st.image(heatmap_img, caption="Areas contributing to diagnosis (Red/Yellow)", use_container_width=True)
             st.balloons() 
         else:
@@ -387,6 +389,7 @@ if uploaded_file:
 else:
     st.info("Upload an X-Ray image in the sidebar to begin the classification process.")
     st.image("https://placehold.co/1000x500/0d47a1/ffffff?text=Cliniscan+AI+Assistant+%7C+Waiting+for+Image+Upload", use_container_width=True, caption="Sample Chest X-Ray Placeholder")
+
 
 
 
