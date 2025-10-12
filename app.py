@@ -91,6 +91,24 @@ def inject_custom_css():
                 color: #3fb950; /* Green for safe */
                 border-left-color: #3fb950;
             }
+            
+            /* Style for Streamlit Tabs */
+            div[data-baseweb="tab-list"] {
+                gap: 15px;
+            }
+            button[data-baseweb="tab"] {
+                background-color: #161b22; /* Darker tab background */
+                color: #c9d1d9 !important; 
+                border-radius: 8px 8px 0 0;
+                padding: 10px 20px;
+                border: 1px solid #30363d;
+                border-bottom: none;
+            }
+            button[data-baseweb="tab"][aria-selected="true"] {
+                background-color: #21262d; /* Selected tab background */
+                color: #58a6ff !important;
+                border-bottom: 2px solid #58a6ff;
+            }
 
         </style>
     """, unsafe_allow_html=True)
@@ -121,9 +139,6 @@ transform = transforms.Compose([
 class_names = ["NORMAL", "PNEUMONIA"]
 
 
-# [The existing functions: generate_grad_cam, get_status_color, create_conditional_bar_chart remain the same]
-# The function bodies are omitted here for brevity but are included in the final file block.
-
 def generate_grad_cam(model, target_layer, img_tensor, original_img):
     """Generates a heat map using Grad-CAM."""
     model.eval()
@@ -149,6 +164,7 @@ def generate_grad_cam(model, target_layer, img_tensor, original_img):
     hook_handle_grad.remove()
     
     if not gradients:
+        # Return a simple placeholder if Grad-CAM fails
         return Image.new('RGB', (original_img.width, original_img.height), color = 'gray')
 
     pooled_gradients = torch.mean(gradients[0], dim=[0, 2, 3])
@@ -280,7 +296,8 @@ st.title("Cliniscan: Chest X-Ray Pneumonia Classifier")
 st.markdown("A deep learning tool for instant diagnosis and explainability.")
 
 
-col_upload, col_space = st.columns([1, 1])
+# Center the uploader by using columns
+col_left, col_upload, col_right = st.columns([1, 2, 1])
 
 with col_upload:
     uploaded_file = st.file_uploader("Upload Chest X-ray Image (JPG/PNG)", type=["jpg","jpeg","png"])
@@ -333,55 +350,56 @@ if uploaded_file:
         st.info("**Model Analysis:** No Sign of Pneumonia Detected.") 
     st.markdown("---")
 
-    
-    # --- IMAGE AND GRAD-CAM VISUALIZATION ---
-    st.markdown("### Visualization & Explainability")
-    
-    col_img, col_gradcam = st.columns(2)
-    
-    with col_img:
-        st.markdown("#### Uploaded X-ray Image")
-        st.image(img, use_container_width=True)
+
+    # --- IMPLEMENTING TABS FOR DASHBOARD VIEW ---
+    tab_visual, tab_scores = st.tabs(["🖼️ Visual Analysis", "📊 Confidence Scores"])
+
+    with tab_visual:
+        st.markdown("### Visualization & Explainability")
         
-    with col_gradcam:
-        st.markdown("#### Model Focus (Grad-CAM)")
-        if pred_class_pt == "PNEUMONIA":
-            with st.spinner("Generating Explainability Heatmap..."):
-                heatmap_img = generate_grad_cam(current_model, target_layer, gradcam_tensor, img)
-            st.image(heatmap_img, caption="Areas contributing to PNEUMONIA diagnosis (Red/Yellow)", use_container_width=True)
-        else:
-            st.info("Grad-CAM visualization is typically most useful for positive (PNEUMONIA) cases and is skipped for NORMAL findings.")
+        col_img, col_gradcam = st.columns(2)
+        
+        with col_img:
+            st.markdown("#### Uploaded X-ray Image")
+            st.image(img, use_container_width=True)
+            
+        with col_gradcam:
+            st.markdown("#### Model Focus (Grad-CAM)")
+            if pred_class_pt == "PNEUMONIA":
+                with st.spinner("Generating Explainability Heatmap..."):
+                    heatmap_img = generate_grad_cam(current_model, target_layer, gradcam_tensor, img)
+                st.image(heatmap_img, caption="Areas contributing to PNEUMONIA diagnosis (Red/Yellow)", use_container_width=True)
+            else:
+                st.info("Grad-CAM visualization is typically most useful for positive (PNEUMONIA) cases and is skipped for NORMAL findings.")
 
-    st.markdown("---")
 
-    
-    # --- MODEL SCORE COMPARISON ---
-    st.markdown("### Deep Learning Model Scores")
-    
-    col_pt_chart, col_onnx_chart = st.columns(2)
+    with tab_scores:
+        st.markdown("### Deep Learning Model Scores")
+        
+        col_pt_chart, col_onnx_chart = st.columns(2)
 
-    with col_pt_chart:
-        st.markdown("#### PyTorch Prediction")
-        pred_idx_pt = torch.argmax(probs_pt).item()
-        pred_class_pt = class_names[pred_idx_pt]
-        pred_prob_pt = probs_pt[pred_idx_pt].item()
-        color_pt = get_status_color(pred_class_pt)
+        with col_pt_chart:
+            st.markdown("#### PyTorch Prediction")
+            pred_idx_pt = torch.argmax(probs_pt).item()
+            pred_class_pt = class_names[pred_idx_pt]
+            pred_prob_pt = probs_pt[pred_idx_pt].item()
+            color_pt = get_status_color(pred_class_pt)
 
-        st.markdown(
-            f"Highest Confidence: **:{color_pt}[{pred_class_pt}]** ({pred_prob_pt*100:.4f}%)"
-        )
-        df_pt = pd.DataFrame({"Class": class_names, "Probability":[p.item() for p in probs_pt]})
-        st.altair_chart(create_conditional_bar_chart(df_pt, "PyTorch"), use_container_width=True) 
+            st.markdown(
+                f"Highest Confidence: **:{color_pt}[{pred_class_pt}]** ({pred_prob_pt*100:.4f}%)"
+            )
+            df_pt = pd.DataFrame({"Class": class_names, "Probability":[p.item() for p in probs_pt]})
+            st.altair_chart(create_conditional_bar_chart(df_pt, "PyTorch"), use_container_width=True) 
 
-    with col_onnx_chart:
-        st.markdown("#### ONNX Prediction")
-        pred_prob_onnx = probs_onnx[final_pred_idx]
-        color_onnx = get_status_color(final_diagnosis_class)
+        with col_onnx_chart:
+            st.markdown("#### ONNX Prediction")
+            pred_prob_onnx = probs_onnx[final_pred_idx]
+            color_onnx = get_status_color(final_diagnosis_class)
 
-        st.markdown(
-            f"Highest Confidence: **:{color_onnx}[{final_diagnosis_class}]** ({pred_prob_onnx*100:.4f}%)"
-        )
-        df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
-        st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
+            st.markdown(
+                f"Highest Confidence: **:{color_onnx}[{final_diagnosis_class}]** ({pred_prob_onnx*100:.4f}%)"
+            )
+            df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
+            st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
 
 
