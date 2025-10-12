@@ -98,7 +98,10 @@ def get_status_color(class_name):
     return "red" if class_name == "PNEUMONIA" else "green"
 
 def create_conditional_bar_chart(df, model_name):
-    """Creates a VERTICAL Altair bar chart with conditional colors for dark mode."""
+    """
+    Creates a VERTICAL Altair bar chart with conditional colors for dark mode.
+    Sets X-axis labels to black for visibility against light bars.
+    """
     
     color_scale = alt.condition(
         alt.datum.Class == "PNEUMONIA",
@@ -107,7 +110,8 @@ def create_conditional_bar_chart(df, model_name):
     )
     
     chart = alt.Chart(df).mark_bar(size=40).encode(
-        x=alt.X("Class", sort="-y", title=None, axis=alt.Axis(labels=True, title=None)),
+        # Set X-axis label color explicitly to black for visibility
+        x=alt.X("Class", sort="-y", title=None, axis=alt.Axis(labels=True, title=None, labelColor="#000000")),
         y=alt.Y("Probability", axis=alt.Axis(format=".0%", title="Probability")),
         color=color_scale,
         tooltip=["Class", alt.Tooltip("Probability", format=".4%")]
@@ -115,19 +119,18 @@ def create_conditional_bar_chart(df, model_name):
         title=f"{model_name} Class Probabilities"
     ).interactive()
     
-    # --- FIX: Apply dark mode configurations using direct method calls to avoid SchemaValidationError ---
+    # Apply dark mode configurations
     chart = chart.configure_view(
         stroke='transparent' # Remove chart border
     ).configure_title(
         fontSize=16,
         color='#ffffff' # White title color
     ).configure_axis(
-        labelColor='#e0e0e0', # Light grey axis labels
+        labelColor='#e0e0e0', # Light grey axis labels (Y-axis will use this)
         titleColor='#e0e0e0', # Light grey axis titles
         gridColor='#333333',  # Dark grid lines
         domainColor='#e0e0e0' # Axis line color
     )
-    # --- END FIX ---
     
     return chart
 
@@ -197,7 +200,7 @@ onnx_session = load_onnx_model(pytorch_model, device)
 
 # --- STREAMLIT UI/LAYOUT ---
 
-# Custom CSS for dark mode aesthetics
+# Custom CSS for dark mode aesthetics, sidebar, and accent divider
 st.markdown("""
 <style>
     /* Set the main app background to a dark color and text to white */
@@ -262,11 +265,22 @@ st.markdown("""
         color: white;
     }
     
-    /* Sidebar styling for better contrast on dark background */
-    .css-1d3w5hv { /* This targets the sidebar content area */
+    /* Sidebar styling: Pure Black background and accent divider */
+    /* Targeting the main sidebar element and its content */
+    /* Note: These selectors are based on current Streamlit class names and might need adjustment if Streamlit changes. */
+    .st-emotion-cache-1ldfxyk, .st-emotion-cache-1y4v82y { 
+        background-color: #000000; /* Pure Black */
         color: #ffffff;
     }
-
+    /* Targeting the divider line in the sidebar */
+    .st-emotion-cache-1ldfxyk > div:first-child > div:nth-child(2) {
+        border-top: 2px solid #bb86fc; /* Light Purple/Magenta accent for divider */
+    }
+    /* Ensuring sidebar text remains white */
+    .st-emotion-cache-1d3w5hv {
+        color: #ffffff;
+    }
+    
     /* Hide the default Streamlit footer */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
@@ -302,6 +316,11 @@ with st.sidebar:
         st.success("ONNX Runtime Engine Ready.")
     else:
         st.warning("ONNX Loading Failed. Falling back to PyTorch-only inference.")
+    
+    st.markdown("---")
+    
+    # New element: Checkbox to control visibility of prediction scores
+    show_scores = st.checkbox("Show Detailed Prediction Scores", value=False) 
     
     st.markdown("---")
     st.caption("Developed for educational & research purposes.")
@@ -340,101 +359,123 @@ if uploaded_file:
     # --- Final Diagnosis (Using ONNX/Fallback) ---
     final_pred_idx = np.argmax(probs_onnx)
     final_diagnosis_class = class_names[final_pred_idx]
-    final_diagnosis_color = get_status_color(final_diagnosis_class)
     max_prob = probs_onnx[final_pred_idx]
     
     
-    # --- RESULT SUMMARY & TOP ROW LAYOUT ---
+    # --- DIAGNOSIS & VISUALIZATION (VERTICAL STACK) ---
     st.markdown("## 🔬 Diagnosis & Visualization")
 
-    # Use 3 columns for a clean presentation
-    col_img, col_heatmap, col_diagnosis = st.columns([1.5, 1.5, 1])
-
-    with col_img:
-        st.subheader("Uploaded X-ray")
-        st.image(img, use_container_width=True)
-
-    with col_heatmap:
-        st.subheader("Model Focus (Grad-CAM)")
+    # 1. Classification Message (Full Width - FIRST)
+    st.subheader("Classification Result")
+    
+    if final_diagnosis_class == "PNEUMONIA":
+        box_class = "pneumonia-detected"
+        icon = "🚨"
+        message = "⚠️ **IMMEDIATE ACTION:** Consultation with a medical professional is strongly recommended."
+        st.error(message)
+    else:
+        box_class = "normal-finding"
+        icon = "✅"
+        message = "**Model Finding:** No Sign of Pneumonia Detected on this image."
+        st.success(message)
         
-        # Grad-CAM is now triggered if the PyTorch model (the source of the hooks) predicts PNEUMONIA.
-        if pred_class_pt == "PNEUMONIA":
-            with st.spinner("Generating Explainability Heatmap..."):
-                # Use PyTorch model for Grad-CAM as ONNX doesn't support backward hooks
-                heatmap_img = generate_grad_cam(pytorch_model, target_layer, gradcam_tensor, img)
-                st.image(heatmap_img, caption="Areas contributing to diagnosis (Red/Yellow)", use_container_width=True)
-        else:
-            st.image(img, caption="Grad-CAM visualization (Model decided finding is normal)", use_container_width=True)
-            st.info("Grad-CAM is typically most useful for positive findings (e.g., PNEUMONIA).")
-
-
-    with col_diagnosis:
-        st.subheader("Classification Result")
-        
-        # Enhanced Result Box
-        if final_diagnosis_class == "PNEUMONIA":
-            box_class = "pneumonia-detected"
-            icon = "🚨"
-            message = "⚠️ **IMMEDIATE ACTION:** Consultation with a medical professional is strongly recommended."
-            st.error(message)
-        else:
-            box_class = "normal-finding"
-            icon = "✅"
-            message = "**Model Finding:** No Sign of Pneumonia Detected on this image."
-            st.success(message)
-            
-        st.markdown(f"""
-        <div class="main-result-box {box_class}">
-            <h3>{icon} {final_diagnosis_class}</h3>
-            <p style="font-size: 1.5em; font-weight: bold;">
-                Confidence: {max_prob*100:.2f}%
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown("---")
-        st.caption("Disclaimer: AI models are assistive tools. Clinical interpretation is required.")
-
-
-    # --- BOTTOM ROW LAYOUT (Charts) ---
+    st.markdown(f"""
+    <div class="main-result-box {box_class}">
+        <h3>{icon} {final_diagnosis_class}</h3>
+        <p style="font-size: 1.5em; font-weight: bold;">
+            Confidence: {max_prob*100:.2f}%
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
     st.markdown("---")
-    st.markdown("## 📊 Detailed Prediction Scores")
 
-    col_pt, col_onnx = st.columns(2)
-
-    # PyTorch Chart
-    with col_pt:
-        st.markdown("### PyTorch Prediction")
-        pred_idx_pt = torch.argmax(probs_pt).item()
-        pred_class_pt_display = class_names[pred_idx_pt]
-        pred_prob_pt = probs_pt[pred_idx_pt].item()
-        color_pt = get_status_color(pred_class_pt_display)
-
-        st.markdown(
-            f"Highest Confidence: **:{color_pt}[{pred_class_pt_display}]** ({pred_prob_pt*100:.4f}%)"
-        )
-        df_pt = pd.DataFrame({"Class": class_names, "Probability":[p.item() for p in probs_pt]})
+    # 2. Uploaded Image (Full Width - SECOND)
+    st.subheader("Uploaded X-ray")
+    st.image(img, use_container_width=True)
     
-        st.altair_chart(create_conditional_bar_chart(df_pt, "PyTorch"), use_container_width=True) 
+    st.markdown("---")
 
-    # ONNX Chart
-    with col_onnx:
-        st.markdown("### ONNX Prediction (Optimized)")
-        pred_prob_onnx = probs_onnx[final_pred_idx]
-        color_onnx = get_status_color(final_diagnosis_class)
+    # 3. Grad-CAM Image (Full Width - THIRD)
+    st.subheader("Model Focus (Grad-CAM)")
+    if pred_class_pt == "PNEUMONIA":
+        with st.spinner("Generating Explainability Heatmap..."):
+            # Use PyTorch model for Grad-CAM as ONNX doesn't support backward hooks
+            heatmap_img = generate_grad_cam(pytorch_model, target_layer, gradcam_tensor, img)
+            st.image(heatmap_img, caption="Areas contributing to diagnosis (Red/Yellow)", use_container_width=True)
+    else:
+        st.image(img, caption="Grad-CAM visualization (Model decided finding is normal)", use_container_width=True)
+        st.info("Grad-CAM is typically most useful for positive findings (e.g., PNEUMONIA).")
+        
+    st.markdown("---")
+    st.caption("Disclaimer: AI models are assistive tools. Clinical interpretation is required.")
 
-        st.markdown(
-            f"Highest Confidence: **:{color_onnx}[{final_diagnosis_class}]** ({pred_prob_onnx*100:.4f}%)"
-        )
-        df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx.astype(float)})
-    
-        st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX Runtime"), use_container_width=True)
 
-# --- NO FILE UPLOADED STATE (Added a placeholder image) ---
+    # --- CONDITIONAL PREDICTION SCORES ---
+    if show_scores:
+        st.markdown("---")
+        st.markdown("## 📊 Detailed Prediction Scores")
+
+        col_pt, col_onnx = st.columns(2)
+
+        # PyTorch Chart
+        with col_pt:
+            st.markdown("### PyTorch Prediction")
+            pred_idx_pt = torch.argmax(probs_pt).item()
+            pred_class_pt_display = class_names[pred_idx_pt]
+            pred_prob_pt = probs_pt[pred_idx_pt].item()
+            color_pt = get_status_color(pred_class_pt_display)
+
+            st.markdown(
+                f"Highest Confidence: **:{color_pt}[{pred_class_pt_display}]** ({pred_prob_pt*100:.4f}%)"
+            )
+            df_pt = pd.DataFrame({"Class": class_names, "Probability":[p.item() for p in probs_pt]})
+        
+            st.altair_chart(create_conditional_bar_chart(df_pt, "PyTorch"), use_container_width=True) 
+
+        # ONNX Chart
+        with col_onnx:
+            st.markdown("### ONNX Prediction (Optimized)")
+            pred_prob_onnx = probs_onnx[final_pred_idx]
+            color_onnx = get_status_color(final_diagnosis_class)
+
+            st.markdown(
+                f"Highest Confidence: **:{color_onnx}[{final_diagnosis_class}]** ({pred_prob_onnx*100:.4f}%)"
+            )
+            df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx.astype(float)})
+        
+            st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX Runtime"), use_container_width=True)
+
+# --- NO FILE UPLOADED STATE (Initial Dashboard) ---
 else:
     st.info("Upload an X-Ray image in the sidebar to begin the classification process.")
-    # Updated placeholder text color to be visible on dark background
-    st.image("https://placehold.co/1000x500/121212/bb86fc?text=Cliniscan+AI+Assistant+%7C+Waiting+for+Image+Upload", use_container_width=True, caption="Sample Chest X-Ray Placeholder")
+
+    st.markdown("## Application Overview")
+    
+    # Dashboard style placeholder (similar to Image 2)
+    st.markdown("""
+        <div style="background-color: #1e1e1e; padding: 30px; border-radius: 15px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); text-align: center;">
+            <h3 style="color: #03dac6; font-weight: 600;">Welcome to Cliniscan</h3>
+            <p style="color: #cccccc;">An AI-powered tool for rapid preliminary classification of Pneumonia from chest X-rays.</p>
+            <div style="margin-top: 20px; display: flex; justify-content: center; gap: 40px; color: #bb86fc;">
+                <div>
+                    <h1 style="font-size: 2em; margin: 0;">🧠</h1>
+                    <p style="margin: 5px 0 0 0; color: #cccccc;">AI Powered Diagnosis</p>
+                </div>
+                <div>
+                    <h1 style="font-size: 2em; margin: 0;">⚡</h1>
+                    <p style="margin: 5px 0 0 0; color: #cccccc;">Optimized with ONNX</p>
+                </div>
+                <div>
+                    <h1 style="font-size: 2em; margin: 0;">🔍</h1>
+                    <p style="margin: 5px 0 0 0; color: #cccccc;">Grad-CAM Explainability</p>
+                </div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    st.image("https://placehold.co/1000x500/121212/bb86fc?text=Upload+an+Image+to+Start+Analysis", use_container_width=True, caption="Sample Chest X-Ray Placeholder")
+
 
 
 
