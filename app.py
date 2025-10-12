@@ -97,7 +97,8 @@ def get_status_color(class_name):
     return "red" if class_name == "PNEUMONIA" else "green"
 
 def create_conditional_bar_chart(df, model_name):
-    """Creates a VERTICAL Altair bar chart with conditional colors."""
+    """Creates a VERTICAL Altair bar chart with conditional colors.
+    Removed cornerRadiusTop to prevent SchemaValidationError."""
     
     color_scale = alt.condition(
         alt.datum.Class == "PNEUMONIA",
@@ -105,7 +106,8 @@ def create_conditional_bar_chart(df, model_name):
         alt.value("#43a047")  # Deeper green
     )
     
-    chart = alt.Chart(df).mark_bar(size=40, cornerRadiusTop=4).encode(
+    # FIX: Removed cornerRadiusTop=4 to fix SchemaValidationError
+    chart = alt.Chart(df).mark_bar(size=40).encode(
         x=alt.X("Class", sort="-y", title=None, axis=alt.Axis(labels=True, title=None)),
         y=alt.Y("Probability", axis=alt.Axis(format=".0%", title="Probability")),
         color=color_scale,
@@ -389,6 +391,7 @@ if uploaded_file:
 else:
     st.info("Upload an X-Ray image in the sidebar to begin the classification process.")
     st.image("https://placehold.co/1000x500/0d47a1/ffffff?text=Cliniscan+AI+Assistant+%7C+Waiting+for+Image+Upload", use_container_width=True, caption="Sample Chest X-Ray Placeholder")
+
 
 
 
