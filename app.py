@@ -203,12 +203,30 @@ onnx_session = load_onnx_model(pytorch_model, device)
 # Custom CSS for dark mode aesthetics, sidebar, and accent divider
 st.markdown("""
 <style>
+    /* ------------------------------------------- */
+    /* GLOBAL DARK MODE FIXES (White Cast Removal) */
+    /* ------------------------------------------- */
     /* Set the main app background to a dark color and text to white */
     .stApp {
         background-color: #121212; /* Deep Charcoal Background */
         color: white;
     }
-    
+    /* Target the core Streamlit container elements to enforce the dark background */
+    div[data-testid="stAppViewContainer"] {
+        background-color: #121212 !important;
+    }
+    /* Fix for white blocks/vertical sections */
+    div[data-testid="stVerticalBlock"] > div {
+        background-color: transparent !important;
+    }
+    body {
+        background-color: #121212 !important;
+    }
+
+    /* ------------------------------------------- */
+    /* CUSTOM STYLING */
+    /* ------------------------------------------- */
+
     /* Main title styling */
     .stApp > header {
         background-color: transparent;
@@ -266,19 +284,13 @@ st.markdown("""
     }
     
     /* Sidebar styling: Pure Black background and accent divider */
-    /* Targeting the main sidebar element and its content */
-    /* Note: These selectors are based on current Streamlit class names and might need adjustment if Streamlit changes. */
-    .st-emotion-cache-1ldfxyk, .st-emotion-cache-1y4v82y { 
-        background-color: #000000; /* Pure Black */
+    div[data-testid="stSidebarContent"] {
+        background-color: #000000 !important; /* Enforce Pure Black */
         color: #ffffff;
     }
     /* Targeting the divider line in the sidebar */
     .st-emotion-cache-1ldfxyk > div:first-child > div:nth-child(2) {
         border-top: 2px solid #bb86fc; /* Light Purple/Magenta accent for divider */
-    }
-    /* Ensuring sidebar text remains white */
-    .st-emotion-cache-1d3w5hv {
-        color: #ffffff;
     }
     
     /* Hide the default Streamlit footer */
@@ -452,36 +464,29 @@ else:
 
     st.markdown("## Application Overview")
     
-    # Dashboard style placeholder (similar to Image 2)
-    st.markdown("""
-        <div style="background-color: #1e1e1e; padding: 30px; border-radius: 15px; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); text-align: center;">
-            <h3 style="color: #03dac6; font-weight: 600;">Welcome to Cliniscan</h3>
-            <p style="color: #cccccc;">An AI-powered tool for rapid preliminary classification of Pneumonia from chest X-rays.</p>
-            <div style="margin-top: 20px; display: flex; justify-content: center; gap: 40px; color: #bb86fc;">
-                <div>
-                    <h1 style="font-size: 2em; margin: 0;">🧠</h1>
-                    <p style="margin: 5px 0 0 0; color: #cccccc;">AI Powered Diagnosis</p>
-                </div>
-                <div>
-                    <h1 style="font-size: 2em; margin: 0;">⚡</h1>
-                    <p style="margin: 5px 0 0 0; color: #cccccc;">Optimized with ONNX</p>
-                </div>
-                <div>
-                    <h1 style="font-size: 2em; margin: 0;">🔍</h1>
-                    <p style="margin: 5px 0 0 0; color: #cccccc;">Grad-CAM Explainability</p>
-                </div>
+    col_img, col_text = st.columns([2, 3])
+
+    with col_img:
+        # Placeholder for Lung Image (using a neutral X-ray image URL)
+        # Using a simple placeholder URL that is visible and professional to suggest a chest x-ray
+        st.image("https://placehold.co/400x400/1e1e1e/bb86fc?text=CHEST+X-RAY", 
+                 caption="AI Classification in Action", use_container_width=True)
+
+    with col_text:
+        # Cleaned up the text structure and removed emojis for a professional look
+        st.markdown(
+            f"""
+            <div style="padding: 20px; border-radius: 10px; background-color: #1e1e1e;">
+                <h3 style="color: #bb86fc; font-weight: 600; margin-top: 0;">Cliniscan: Pneumonia AI Classifier</h3>
+                <p style="color: #cccccc;">This tool utilizes a deep learning model (ResNet-18) trained on thousands of chest X-ray images to provide rapid, preliminary classification for Pneumonia and Normal findings.</p>
+                
+                <h4 style="color: #03dac6; margin-top: 20px;">Key Features:</h4>
+                <ul style="color: #e0e0e0; padding-left: 20px;">
+                    <li>**Fast Inference:** Optimized with the ONNX Runtime for low-latency predictions.</li>
+                    <li>**Explainability:** Uses Grad-CAM to visualize the exact regions (heatmaps) of the X-ray the model focused on for its diagnosis.</li>
+                    <li>**High Confidence:** Provides classification confidence scores for both 'NORMAL' and 'PNEUMONIA' classes.</li>
+                </ul>
+                <p style="color: #cf6679; font-weight: bold; margin-top: 20px;">Note: This is an assistive tool for research and education. Always rely on clinical judgment.</p>
             </div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    st.image("https://placehold.co/1000x500/121212/bb86fc?text=Upload+an+Image+to+Start+Analysis", use_container_width=True, caption="Sample Chest X-Ray Placeholder")
-
-
-
-
-
-
-
-
-
-
+            """, unsafe_allow_html=True
+        )
