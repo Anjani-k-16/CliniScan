@@ -104,6 +104,7 @@ class MockModel:
         pass
     def __call__(self, x):
         # Return random logit-like output for simulation
+        # This function is now mostly bypassed in the prediction logic below
         return torch.tensor([[0.5, -0.5]], dtype=torch.float32)
 
 @st.cache_resource
@@ -244,6 +245,19 @@ with st.sidebar:
     # Show loading status for models
     if isinstance(pytorch_model, MockModel):
         st.warning("PyTorch Model (Mock) Active.")
+        
+        # === NEW: Simulation Control for UI Testing ===
+        st.markdown("---")
+        st.subheader("Simulation Control")
+        # Radio button to let the user select the forced outcome
+        mock_result_choice = st.radio(
+            "Force Simulated Diagnosis:",
+            ("NORMAL", "PNEUMONIA"),
+            index=0,
+            key="mock_result"
+        )
+        # ===============================================
+        
     else:
         st.success("PyTorch Model (ResNet-18) Loaded.")
 
@@ -278,14 +292,16 @@ if uploaded_file:
     
     # --- Prediction Simulation ---
     if isinstance(pytorch_model, MockModel):
-        # Generate random, but normalized, probabilities for the mock model
-        # Forces a 65% chance of PNEUMONIA for interesting simulation
-        if np.random.rand() > 0.35:
-            # Simulate PNEUMONIA result (e.g., 85% confidence)
-            probs_onnx = np.array([0.15, 0.85], dtype=np.float32)
+        # Read the user-controlled simulation setting
+        mock_result_choice = st.session_state.mock_result
+        
+        # Generate FIXED, high-confidence probabilities based on the user's choice
+        if mock_result_choice == "PNEUMONIA":
+            # Simulate PNEUMONIA result (e.g., 98% confidence)
+            probs_onnx = np.array([0.02, 0.98], dtype=np.float32)
         else:
-            # Simulate NORMAL result (e.g., 90% confidence)
-            probs_onnx = np.array([0.90, 0.10], dtype=np.float32)
+            # Simulate NORMAL result (e.g., 98% confidence)
+            probs_onnx = np.array([0.98, 0.02], dtype=np.float32)
         
         # PyTorch result is the same as ONNX for stubbing simplicity
         probs_pt = torch.tensor(probs_onnx)
@@ -355,7 +371,7 @@ if uploaded_file:
             st.image(heatmap_img, caption="Areas contributing to diagnosis (Red/Yellow)", use_container_width=True)
     elif isinstance(pytorch_model, MockModel):
         st.image(img, caption="Grad-CAM visualization is disabled (Mock Model active)", use_container_width=True)
-        st.warning("The real model must be loaded to generate the Grad-CAM visualization.")
+        st.warning("The real model must be loaded to generate the Grad-CAM visualization. **Simulated Diagnosis:** " + st.session_state.mock_result)
     else:
         st.image(img, caption="Grad-CAM visualization (Model decided finding is normal)", use_container_width=True)
         st.info("Grad-CAM is typically most useful for positive findings (e.g., PNEUMONIA).")
@@ -431,4 +447,6 @@ else:
             </div>
             """, unsafe_allow_html=True
         )
+
+
 
