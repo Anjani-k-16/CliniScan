@@ -197,21 +197,30 @@ def get_status_color(class_name):
     return "red" if class_name == "PNEUMONIA" else "green"
 
 def create_conditional_bar_chart(df, model_name):
-    """Creates a VERTICAL Altair bar chart with conditional colors."""
+    """Creates a professional VERTICAL Altair bar chart with conditional colors and styling."""
+    
+    # Define colors matching the CSS theme for consistency
+    red_color = "#f85149"
+    green_color = "#3fb950"
     
     color_scale = alt.condition(
         alt.datum.Class == "PNEUMONIA",
-        alt.value("#f85149"), # Darker red for charts
-        alt.value("#3fb950") # Darker green for charts
+        alt.value(red_color), 
+        alt.value(green_color) 
     )
 
-    chart = alt.Chart(df).mark_bar().encode(
+    chart = alt.Chart(df).mark_bar(
+        size=40, # Make bars thinner and more structured
+        cornerRadiusTopLeft=4, 
+        cornerRadiusTopRight=4,
+        opacity=0.9
+    ).encode(
         x=alt.X("Class", sort="-y", title=None, axis=alt.Axis(labels=True, title=None)), 
-        y=alt.Y("Probability", axis=alt.Axis(format=".0%", title="Probability")),
+        y=alt.Y("Probability", axis=alt.Axis(format=".0%", title="Confidence")), # Changed title to Confidence
         color=color_scale,
         tooltip=["Class", alt.Tooltip("Probability", format=".4%")] 
     ).properties(
-        title=f"{model_name} Class Probabilities" 
+        title=f"{model_name} Prediction" # Shorter, cleaner title
     ).interactive()
     
     return chart
@@ -379,7 +388,7 @@ if uploaded_file:
         col_pt_chart, col_onnx_chart = st.columns(2)
 
         with col_pt_chart:
-            st.markdown("#### PyTorch Prediction")
+            st.markdown("#### PyTorch Prediction Details")
             pred_idx_pt = torch.argmax(probs_pt).item()
             pred_class_pt = class_names[pred_idx_pt]
             pred_prob_pt = probs_pt[pred_idx_pt].item()
@@ -392,7 +401,7 @@ if uploaded_file:
             st.altair_chart(create_conditional_bar_chart(df_pt, "PyTorch"), use_container_width=True) 
 
         with col_onnx_chart:
-            st.markdown("#### ONNX Prediction")
+            st.markdown("#### ONNX Prediction Details")
             pred_prob_onnx = probs_onnx[final_pred_idx]
             color_onnx = get_status_color(final_diagnosis_class)
 
