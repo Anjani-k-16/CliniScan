@@ -387,4 +387,6 @@ else:
     """, unsafe_allow_html=True)
     
     st.image("https://placehold.co/1000x500/121212/bb86fc?text=Upload+an+Image+to+Start+Analysis", use_container_width=True, caption="Sample Chest X-Ray Placeholder")
+    
+
 
