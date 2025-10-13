@@ -12,7 +12,7 @@ import onnx
 import cv2 
 import io 
 import gdown 
-import base64 # Added for base64 encoding/decoding
+import base64 
 
 # --- Configuration ---
 device = torch.device("cpu") 
@@ -25,14 +25,9 @@ GOOGLE_DRIVE_FILE_ID = "1FN8UG5pJiKPT8_yE8CkvlTC2DthCxbVR"
 # -----------------------------
 
 # Default image path for initial display (using an uploaded file name as placeholder)
-# We will rely on this local file for the sample image.
 DEFAULT_IMAGE_PATH = "image_cfd0a2.jpg" 
-# Removed FALLBACK_IMAGE_URL as it was causing display issues due to CSP/firewall blocking.
 
-# BASE64 Fallback Image (A very small, simple placeholder image: 1x1 white pixel)
-# This serves as a guaranteed-to-load sample if the local file isn't found.
-# The actual X-ray file would be much larger, but this ensures a visual element loads.
-# NOTE: A real Base64 of a simple X-ray is too large to embed, so this placeholder is used.
+# BASE64 Fallback Image (A very small, simple 1x1 white pixel placeholder)
 BASE64_PLACEHOLDER_IMAGE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwAB/2+Bw/oAAAAASUVORK5CYII="
 
 
@@ -85,7 +80,7 @@ def generate_grad_cam(model, target_layer, img_tensor, original_img):
     hook_handle_grad.remove()
     
     if not gradients or len(gradients[0]) == 0:
-        # Fallback if gradients are empty (shouldn't happen with detach().requires_grad_(True))
+        # Fallback if gradients are empty 
         return Image.new('RGB', (original_img.width, original_img.height), color = 'gray')
 
     pooled_gradients = torch.mean(gradients[0], dim=[0, 2, 3])
@@ -151,7 +146,6 @@ def load_pytorch_model():
     """Loads the trained PyTorch model structure and weights."""
     
     # --- Check for model file and download if missing or corrupted ---
-    # Added robust file size check (100KB minimum)
     if not os.path.exists(MODEL_PTH_PATH) or os.path.getsize(MODEL_PTH_PATH) < 100000:
         with st.spinner("Model weights not found/corrupted. Downloading from Google Drive..."):
             try:
@@ -162,7 +156,6 @@ def load_pytorch_model():
                 if not os.path.exists(MODEL_PTH_PATH) or os.path.getsize(MODEL_PTH_PATH) < 100000:
                      raise Exception("Downloaded file is empty or corrupted.")
 
-                # REMOVED: st.success("PyTorch model download complete!")
             except Exception as e:
                 st.error(f"Failed to download model from Google Drive. Check the file ID and permissions. Error: {e}")
                 return None 
@@ -218,7 +211,6 @@ def load_onnx_model(_model_pt, device):
             # Basic ONNX check
             onnx_model = onnx.load(ONNX_PATH)
             onnx.checker.check_model(onnx_model)
-            # REMOVED: st.success("ONNX export successful!")
         except Exception as e:
             st.warning(f"Failed to export ONNX model. Running in PyTorch-only mode. Error: {e}")
             return None 
@@ -272,31 +264,28 @@ uploaded_file = st.file_uploader("Choose a Chest X-ray image", type=["jpg","jpeg
 
 # Logic to display default content if no file is uploaded (uploaded_file will be None initially)
 if uploaded_file is None:
-    st.subheader("Welcome to Cliniscan")
-    st.markdown("Upload a chest X-ray image above to receive an immediate classification (NORMAL or PNEUMONIA) and an explainability heatmap (Grad-CAM).")
     
-    # Try to load the image
+    image_to_display = None
+    caption_text = "Example X-ray Image (Sample)"
+    
     try:
-        # 1. Try to load the locally uploaded file (if it can be found by name in the runtime)
+        # 1. Try to load the locally uploaded file 
         if os.path.exists(DEFAULT_IMAGE_PATH):
-            default_img = Image.open(DEFAULT_IMAGE_PATH).convert("RGB")
-            # Use the local file as the sample image
-            st.image(default_img, caption="Example Chest X-ray Image (Sample)", use_container_width=True)
-        else:
-             # 2. If the local file is not found, load the Base64 placeholder instead of a warning
-             
-             # Decode base64 image data
-             image_data = base64.b64decode(BASE64_PLACEHOLDER_IMAGE)
-             # Open the image from the decoded bytes
-             placeholder_img = Image.open(io.BytesIO(image_data)).convert("RGB")
-             
-             st.image(placeholder_img, caption="Sample X-ray image placeholder (Please upload a real image)", use_container_width=True)
-             st.warning("The expected local sample X-ray file was not found. Displaying a simple placeholder. Please upload an image to begin analysis.")
-
-
-    except Exception as e:
-        # 3. If image opening fails
-        st.warning(f"Could not load the default image. Please upload an image to begin analysis. Error details: {e}")
+            image_to_display = Image.open(DEFAULT_IMAGE_PATH).convert("RGB")
+        
+        # 2. Fallback to the Base64 placeholder if local file failed
+        if image_to_display is None:
+            image_data = base64.b64decode(BASE64_PLACEHOLDER_IMAGE)
+            image_to_display = Image.open(io.BytesIO(image_data)).convert("RGB")
+            caption_text = "Placeholder X-ray (Upload an image)"
+            
+    except Exception:
+        # 3. If image loading fails catastrophically, we suppress the detailed error 
+        # but ensure image_to_display remains None so no image is shown.
+        pass
+        
+    if image_to_display:
+        st.image(image_to_display, caption=caption_text, use_container_width=True)
         
     # Stop the rest of the script execution if no file is uploaded
     st.stop()
@@ -417,6 +406,7 @@ if uploaded_file:
             df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
     
             st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
+
 
 
 
