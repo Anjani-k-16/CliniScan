@@ -27,8 +27,12 @@ GOOGLE_DRIVE_FILE_ID = "1FN8UG5pJiKPT8_yE8CkvlTC2DthCxbVR"
 # Default image path for initial display (using an uploaded file name as placeholder)
 DEFAULT_IMAGE_PATH = "image_cfd0a2.jpg" 
 
-# BASE64 Fallback Image (A very small, simple 1x1 white pixel placeholder)
-BASE64_PLACEHOLDER_IMAGE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwAB/2+Bw/oAAAAASUVORK5CYII="
+# --- New Placeholder URL ---
+# Using a publicly accessible image URL for a clean, reliable sample image display.
+PLACEHOLDER_IMAGE_URL = "https://placehold.co/600x400/000000/AAAAAA?text=Sample+X-ray+Screen"
+
+# We can remove the tiny Base64 placeholder since we are using a robust URL now.
+# BASE64_PLACEHOLDER_IMAGE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwAB/2+Bw/oAAAAASUVORK5CYII="
 
 
 transform_gradcam = transforms.Compose([
@@ -265,27 +269,19 @@ uploaded_file = st.file_uploader("Choose a Chest X-ray image", type=["jpg","jpeg
 # Logic to display default content if no file is uploaded (uploaded_file will be None initially)
 if uploaded_file is None:
     
-    image_to_display = None
-    caption_text = "Example X-ray Image (Sample)"
-    
-    try:
-        # 1. Try to load the locally uploaded file 
-        if os.path.exists(DEFAULT_IMAGE_PATH):
-            image_to_display = Image.open(DEFAULT_IMAGE_PATH).convert("RGB")
+    # 1. First, try to load a locally provided image file
+    if os.path.exists(DEFAULT_IMAGE_PATH):
+        try:
+            sample_img = Image.open(DEFAULT_IMAGE_PATH).convert("RGB")
+            st.image(sample_img, caption="Example X-ray Image (Sample)", use_container_width=True)
+            st.stop()
+        except Exception:
+            # If local file exists but is corrupted, fall through to the URL fallback
+            pass 
         
-        # 2. Fallback to the Base64 placeholder if local file failed
-        if image_to_display is None:
-            image_data = base64.b64decode(BASE64_PLACEHOLDER_IMAGE)
-            image_to_display = Image.open(io.BytesIO(image_data)).convert("RGB")
-            caption_text = "Placeholder X-ray (Upload an image)"
-            
-    except Exception:
-        # 3. If image loading fails catastrophically, we suppress the detailed error 
-        # but ensure image_to_display remains None so no image is shown.
-        pass
-        
-    if image_to_display:
-        st.image(image_to_display, caption=caption_text, use_container_width=True)
+    # 2. Fallback: If no local file is found (or it failed to load), display the public URL image
+    # Note: st.image with a URL handles network fetching gracefully.
+    st.image(PLACEHOLDER_IMAGE_URL, caption="Upload a Chest X-ray image above to begin analysis.", use_container_width=True)
         
     # Stop the rest of the script execution if no file is uploaded
     st.stop()
@@ -406,6 +402,7 @@ if uploaded_file:
             df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
     
             st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
+
 
 
 
