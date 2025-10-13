@@ -58,11 +58,14 @@ def generate_grad_cam(model, target_layer, img_tensor, original_img):
     output = model(img_tensor)
     model.zero_grad()
     target_score = output[0, target_class_idx]
-    target_score.backward(retain_graph=True) 
+    # Check if target_score is a scalar before calling backward
+    if target_score.numel() == 1:
+        target_score.backward(retain_graph=True) 
     
     hook_handle_fm.remove()
     hook_handle_grad.remove()
     
+    # Ensuring gradients are accessible and not empty
     if not gradients or len(gradients[0]) == 0:
         # Fallback if gradients are empty
         return Image.new('RGB', (original_img.width, original_img.height), color = 'gray')
@@ -75,8 +78,9 @@ def generate_grad_cam(model, target_layer, img_tensor, original_img):
     heatmap = torch.mean(feature_map, dim=0).relu()
     
     # Normalize the heatmap
-    if torch.max(heatmap) > 0:
-        heatmap /= torch.max(heatmap)
+    max_val = torch.max(heatmap)
+    if max_val > 0:
+        heatmap /= max_val
     
     heatmap_np = heatmap.detach().cpu().numpy() 
     
@@ -207,14 +211,13 @@ def load_onnx_model(_model_pt, device):
         return None
 
 
-onnx_session = load_onnx_model(pytorch_model, device)
-
-# Note: We stop only if the essential PyTorch model failed. If ONNX fails, 
-# the app can still run using PyTorch, but for simplicity, we stop here 
-# since the user wants the dual-model functionality.
-if onnx_session is None:
-    st.stop()
-
+# --- IMPORTANT CHANGE: Make ONNX loading non-fatal ---
+onnx_session = None
+try:
+    onnx_session = load_onnx_model(pytorch_model, device)
+except Exception as e:
+    st.warning(f"ONNX initialization failed. The application will run in PyTorch-only mode. Error: {e}")
+    onnx_session = None
 
 # --- Streamlit UI ---
 
@@ -240,7 +243,11 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.title("CHEST X-RAY PNEUMONIA CLASSIFIER (Dual Engine)") 
+# Conditional title
+if onnx_session:
+    st.title("CHEST X-RAY PNEUMONIA CLASSIFIER (Dual Engine)") 
+else:
+    st.title("CHEST X-RAY PNEUMONIA CLASSIFIER (PyTorch-Only)") 
 st.markdown("---")
 
 
@@ -259,25 +266,35 @@ if uploaded_file:
     gradcam_tensor.requires_grad_(True)
     
     
-    # --- PYTORCH PREDICTION ---
+    # --- PYTORCH PREDICTION (Always available) ---
     outputs_pt = current_model(img_tensor)
     probs_pt = torch.softmax(outputs_pt, dim=1)[0]
-    pred_class_pt = class_names[torch.argmax(probs_pt).item()]
+    pred_idx_pt = torch.argmax(probs_pt).item()
+    pred_class_pt = class_names[pred_idx_pt]
 
     
-    # --- ONNX PREDICTION ---
-    x = transform(img).unsqueeze(0).numpy().astype(np.float32)
-    outputs_onnx = onnx_session.run(None, {"input": x})[0][0]
-    # Apply softmax manually for ONNX output
-    probs_onnx = np.exp(outputs_onnx) / np.sum(np.exp(outputs_onnx))
+    # --- ONNX PREDICTION (Conditional) ---
+    probs_onnx = None
+    if onnx_session:
+        x = transform(img).unsqueeze(0).numpy().astype(np.float32)
+        outputs_onnx = onnx_session.run(None, {"input": x})[0][0]
+        # Apply softmax manually for ONNX output
+        probs_onnx = np.exp(outputs_onnx) / np.sum(np.exp(outputs_onnx))
     
     
-    # --- FINAL DIAGNOSIS (Based on ONNX as it's typically faster) ---
-    final_pred_idx = np.argmax(probs_onnx)
-    final_diagnosis_class = class_names[final_pred_idx]
+    # --- FINAL DIAGNOSIS (Prioritizing ONNX, falling back to PyTorch) ---
+    if probs_onnx is not None:
+        # Use ONNX result
+        final_pred_idx = np.argmax(probs_onnx)
+        final_diagnosis_class = class_names[final_pred_idx]
+        max_prob = probs_onnx[final_pred_idx]
+    else:
+        # Fallback to PyTorch result
+        final_diagnosis_class = pred_class_pt
+        max_prob = probs_pt[pred_idx_pt].item()
+
     final_diagnosis_color = get_status_color(final_diagnosis_class)
-    max_prob = probs_onnx[final_pred_idx]
-    
+
     
     st.markdown("### Classification Result:")
     
@@ -311,35 +328,42 @@ if uploaded_file:
     
  
     st.markdown("### Model Prediction Scores")
-    col_pt, col_onnx = st.columns(2)
+    
+    if onnx_session:
+        # Show both columns if ONNX is available
+        col_pt, col_onnx = st.columns(2)
+    else:
+        # Show only PyTorch column if ONNX is unavailable
+        col_pt, _ = st.columns([1, 0]) # Create a single effective column
+        st.warning("ONNX predictions are currently unavailable.")
 
- 
+
     with col_pt:
         st.markdown("#### PyTorch Prediction")
-        pred_idx_pt = torch.argmax(probs_pt).item()
         pred_prob_pt = probs_pt[pred_idx_pt].item()
-        pred_class_pt_name = class_names[pred_idx_pt]
-        color_pt = get_status_color(pred_class_pt_name)
+        color_pt = get_status_color(pred_class_pt)
 
         st.markdown(
-            f"Highest Confidence: **:{color_pt}[{pred_class_pt_name}]** ({pred_prob_pt*100:.4f}%)"
+            f"Highest Confidence: **:{color_pt}[{pred_class_pt}]** ({pred_prob_pt*100:.4f}%)"
         )
         df_pt = pd.DataFrame({"Class": class_names, "Probability":[p.item() for p in probs_pt]})
     
         st.altair_chart(create_conditional_bar_chart(df_pt, "PyTorch"), use_container_width=True) 
 
-    with col_onnx:
-        st.markdown("#### ONNX Prediction")
-        pred_prob_onnx = probs_onnx[final_pred_idx]
-        color_onnx = get_status_color(final_diagnosis_class)
+    if onnx_session:
+        with col_onnx:
+            st.markdown("#### ONNX Prediction")
+            pred_prob_onnx = probs_onnx[final_pred_idx]
+            color_onnx = get_status_color(final_diagnosis_class)
 
-        st.markdown(
-            f"Highest Confidence: **:{color_onnx}[{final_diagnosis_class}]** ({pred_prob_onnx*100:.4f}%)"
-        )
-        df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
- 
-        st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
+            st.markdown(
+                f"Highest Confidence: **:{color_onnx}[{final_diagnosis_class}]** ({pred_prob_onnx*100:.4f}%)"
+            )
+            df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
     
+            st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
+    
+
 
 
 
