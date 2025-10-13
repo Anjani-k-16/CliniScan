@@ -249,11 +249,8 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# Conditional title
-if onnx_session:
-    st.title("CHEST X-RAY PNEUMONIA CLASSIFIER (Dual Engine)") 
-else:
-    st.title("CHEST X-RAY PNEUMONIA CLASSIFIER (PyTorch-Only)") 
+# --- STATIC TITLE ---
+st.title("CHEST X-RAY PNEUMONIA CLASSIFIER") 
 st.markdown("---")
 
 
@@ -343,7 +340,7 @@ if uploaded_file:
         col_pt, col_onnx = st.columns(2)
     else:
         col_pt, _ = st.columns([1, 0])
-        st.warning("ONNX predictions are currently unavailable because the export/load process failed due to resource limits. Running in PyTorch-only mode.")
+        st.warning("ONNX predictions are currently unavailable because the export/load process failed due to resource limits or an unknown issue. Running in PyTorch-only mode.")
 
 
     with col_pt:
@@ -374,8 +371,6 @@ if uploaded_file:
             df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
     
             st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
-    
-
 
 
 
