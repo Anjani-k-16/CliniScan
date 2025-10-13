@@ -150,7 +150,7 @@ def load_pytorch_model():
                 if not os.path.exists(MODEL_PTH_PATH) or os.path.getsize(MODEL_PTH_PATH) < 100000:
                      raise Exception("Downloaded file is empty or corrupted.")
 
-                st.success("PyTorch model download complete!")
+                # REMOVED: st.success("PyTorch model download complete!")
             except Exception as e:
                 st.error(f"Failed to download model from Google Drive. Check the file ID and permissions. Error: {e}")
                 return None 
@@ -206,7 +206,7 @@ def load_onnx_model(_model_pt, device):
             # Basic ONNX check
             onnx_model = onnx.load(ONNX_PATH)
             onnx.checker.check_model(onnx_model)
-            st.success("ONNX export successful!")
+            # REMOVED: st.success("ONNX export successful!")
         except Exception as e:
             st.warning(f"Failed to export ONNX model. Running in PyTorch-only mode. Error: {e}")
             return None 
@@ -371,6 +371,7 @@ if uploaded_file:
             df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
     
             st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
+
 
 
 
