@@ -251,7 +251,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-st.title("CHEST X-RAY PNEUMONIA CLASSIFIER") 
+st.title("PNEUMONIA X-RAY CLASSIFIER") 
 st.markdown("---")
 
 
@@ -357,6 +357,7 @@ if uploaded_file:
     
         st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
     
+
 
 
 
