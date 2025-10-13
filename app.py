@@ -24,9 +24,9 @@ GOOGLE_DRIVE_FILE_ID = "1FN8UG5pJiKPT8_yE8CkvlTC2DthCxbVR"
 # -----------------------------
 
 # Default image path for initial display (using an uploaded file name as placeholder)
+# We will rely on this local file for the sample image.
 DEFAULT_IMAGE_PATH = "image_cfd0a2.jpg" 
-# Using a reliable public sample X-ray image URL as a robust fallback
-FALLBACK_IMAGE_URL = "https://cdn.pixabay.com/photo/2017/04/12/10/58/chest-x-ray-2223849_1280.jpg"
+# Removed FALLBACK_IMAGE_URL as it was causing display issues due to CSP/firewall blocking.
 
 
 transform_gradcam = transforms.Compose([
@@ -258,7 +258,7 @@ st.header("CHEST X-RAY PNEUMONIA CLASSIFIER")
 st.markdown("---")
 
 
-# --- FIX: Define uploaded_file unconditionally at the start ---
+# --- Define uploaded_file unconditionally at the start ---
 uploaded_file = st.file_uploader("Choose a Chest X-ray image", type=["jpg","jpeg","png"])
 # -------------------------------------------------------------
 
@@ -273,13 +273,15 @@ if uploaded_file is None:
         # 1. Try to load the locally uploaded file (if it can be found by name in the runtime)
         if os.path.exists(DEFAULT_IMAGE_PATH):
             default_img = Image.open(DEFAULT_IMAGE_PATH).convert("RGB")
-            st.image(default_img, caption="Example Chest X-ray Image", use_container_width=True)
+            # Use the local file as the sample image
+            st.image(default_img, caption="Example Chest X-ray Image (Sample)", use_container_width=True)
         else:
-             # 2. Use the robust URL fallback
-            st.image(FALLBACK_IMAGE_URL, caption="Example Chest X-ray Image (Sample)", use_container_width=True)
+             # 2. If the local file is not found, show a warning instead of a bad URL attempt
+             st.warning("Sample X-ray image not found locally. Please upload an image to begin analysis.")
+
 
     except Exception as e:
-        # 3. If everything fails
+        # 3. If image opening fails
         st.warning(f"Could not load the default image. Please upload an image to begin analysis. Error details: {e}")
         
     # Stop the rest of the script execution if no file is uploaded
@@ -401,6 +403,7 @@ if uploaded_file:
             df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
     
             st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
+
 
 
 
