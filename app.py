@@ -24,16 +24,10 @@ MODEL_PTH_PATH = "model_stable.pth"
 GOOGLE_DRIVE_FILE_ID = "1FN8UG5pJiKPT8_yE8CkvlTC2DthCxbVR"
 # -----------------------------
 
-# Default image path for initial display (using an uploaded file name as placeholder)
-DEFAULT_IMAGE_PATH = "image_cfd0a2.jpg" 
-
-# --- New Placeholder URL ---
-# Using a publicly accessible image URL for a clean, reliable sample image display.
-# Updated to use WHITE background for high visibility against the black app theme
-PLACEHOLDER_IMAGE_URL = "https://placehold.co/600x400/FFFFFF/000000?text=Sample+X-ray+Screen"
-
-# We can remove the tiny Base64 placeholder since we are using a robust URL now.
-# BASE64_PLACEHOLDER_IMAGE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwAB/2+Bw/oAAAAASUVORK5CYII="
+# --- NEW: Reliable Public Sample X-ray Image URL ---
+# Using a publicly accessible, generic X-ray image for the default view.
+PLACEHOLDER_IMAGE_URL = "https://cdn.pixabay.com/photo/2018/06/12/10/58/x-ray-3469796_960_720.png"
+# ---------------------------------------------------
 
 
 transform_gradcam = transforms.Compose([
@@ -270,11 +264,10 @@ uploaded_file = st.file_uploader("Choose a Chest X-ray image", type=["jpg","jpeg
 # Logic to display default content if no file is uploaded (uploaded_file will be None initially)
 if uploaded_file is None:
     
-    # Use the robust public URL placeholder for display when no file is uploaded.
-    # Removed unreliable local file path check.
+    # Use the robust public URL of a generic X-ray image for display when no file is uploaded.
     st.image(
         PLACEHOLDER_IMAGE_URL, 
-        caption="Upload a Chest X-ray image above to begin analysis.", 
+        caption="Example Chest X-ray Image (Placeholder). Upload your own X-ray image above to begin analysis.", 
         use_container_width=True
     )
         
@@ -397,6 +390,7 @@ if uploaded_file:
             df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
     
             st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
+
 
 
 
