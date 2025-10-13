@@ -24,10 +24,11 @@ MODEL_PTH_PATH = "model_stable.pth"
 GOOGLE_DRIVE_FILE_ID = "1FN8UG5pJiKPT8_yE8CkvlTC2DthCxbVR"
 # -----------------------------
 
-# --- NEW: Reliable Public Sample X-ray Image URL ---
-# Using a publicly accessible, generic X-ray image for the default view.
-PLACEHOLDER_IMAGE_URL = "https://cdn.pixabay.com/photo/2018/06/12/10/58/x-ray-3469796_960_720.png"
-# ---------------------------------------------------
+# Default image path for initial display (using an uploaded file name as placeholder)
+DEFAULT_IMAGE_PATH = "image_cfd0a2.jpg" 
+
+# BASE64 Fallback Image (A very small, simple 1x1 white pixel placeholder)
+BASE64_PLACEHOLDER_IMAGE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwAB/2+Bw/oAAAAASUVORK5CYII="
 
 
 transform_gradcam = transforms.Compose([
@@ -264,12 +265,27 @@ uploaded_file = st.file_uploader("Choose a Chest X-ray image", type=["jpg","jpeg
 # Logic to display default content if no file is uploaded (uploaded_file will be None initially)
 if uploaded_file is None:
     
-    # Use the robust public URL of a generic X-ray image for display when no file is uploaded.
-    st.image(
-        PLACEHOLDER_IMAGE_URL, 
-        caption="Example Chest X-ray Image (Placeholder). Upload your own X-ray image above to begin analysis.", 
-        use_container_width=True
-    )
+    image_to_display = None
+    caption_text = "Example X-ray Image (Sample)"
+    
+    try:
+        # 1. Try to load the locally uploaded file 
+        if os.path.exists(DEFAULT_IMAGE_PATH):
+            image_to_display = Image.open(DEFAULT_IMAGE_PATH).convert("RGB")
+        
+        # 2. Fallback to the Base64 placeholder if local file failed
+        if image_to_display is None:
+            image_data = base64.b64decode(BASE64_PLACEHOLDER_IMAGE)
+            image_to_display = Image.open(io.BytesIO(image_data)).convert("RGB")
+            caption_text = "Placeholder X-ray (Upload an image)"
+            
+    except Exception:
+        # 3. If image loading fails catastrophically, we suppress the detailed error 
+        # but ensure image_to_display remains None so no image is shown.
+        pass
+        
+    if image_to_display:
+        st.image(image_to_display, caption=caption_text, use_container_width=True)
         
     # Stop the rest of the script execution if no file is uploaded
     st.stop()
