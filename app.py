@@ -12,6 +12,7 @@ import onnx
 import cv2 
 import io 
 import gdown 
+import base64 # Added for base64 encoding/decoding
 
 # --- Configuration ---
 device = torch.device("cpu") 
@@ -27,6 +28,12 @@ GOOGLE_DRIVE_FILE_ID = "1FN8UG5pJiKPT8_yE8CkvlTC2DthCxbVR"
 # We will rely on this local file for the sample image.
 DEFAULT_IMAGE_PATH = "image_cfd0a2.jpg" 
 # Removed FALLBACK_IMAGE_URL as it was causing display issues due to CSP/firewall blocking.
+
+# BASE64 Fallback Image (A very small, simple placeholder image: 1x1 white pixel)
+# This serves as a guaranteed-to-load sample if the local file isn't found.
+# The actual X-ray file would be much larger, but this ensures a visual element loads.
+# NOTE: A real Base64 of a simple X-ray is too large to embed, so this placeholder is used.
+BASE64_PLACEHOLDER_IMAGE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwAB/2+Bw/oAAAAASUVORK5CYII="
 
 
 transform_gradcam = transforms.Compose([
@@ -276,8 +283,15 @@ if uploaded_file is None:
             # Use the local file as the sample image
             st.image(default_img, caption="Example Chest X-ray Image (Sample)", use_container_width=True)
         else:
-             # 2. If the local file is not found, show a warning instead of a bad URL attempt
-             st.warning("Sample X-ray image not found locally. Please upload an image to begin analysis.")
+             # 2. If the local file is not found, load the Base64 placeholder instead of a warning
+             
+             # Decode base64 image data
+             image_data = base64.b64decode(BASE64_PLACEHOLDER_IMAGE)
+             # Open the image from the decoded bytes
+             placeholder_img = Image.open(io.BytesIO(image_data)).convert("RGB")
+             
+             st.image(placeholder_img, caption="Sample X-ray image placeholder (Please upload a real image)", use_container_width=True)
+             st.warning("The expected local sample X-ray file was not found. Displaying a simple placeholder. Please upload an image to begin analysis.")
 
 
     except Exception as e:
@@ -403,6 +417,7 @@ if uploaded_file:
             df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
     
             st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
+
 
 
 
