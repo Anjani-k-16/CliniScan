@@ -147,12 +147,13 @@ def load_pytorch_model():
     
     # --- Check for model file and download if missing (NO MESSAGES SHOWN) ---
     if not os.path.exists(MODEL_PTH_PATH):
-        try:
-            # Download the file silently (quiet=True)
-            gdown.download(id=GOOGLE_DRIVE_FILE_ID, output=MODEL_PTH_PATH, quiet=True) 
-        except Exception as e:
-            st.error(f"Failed to download model from Google Drive. Check the file ID and permissions. Error: {e}")
-            return None 
+        with st.spinner(f"Downloading model weights ({MODEL_PTH_PATH})..."):
+            try:
+                # Download the file silently (quiet=True)
+                gdown.download(id=GOOGLE_DRIVE_FILE_ID, output=MODEL_PTH_PATH, quiet=True) 
+            except Exception as e:
+                st.error(f"Failed to download model from Google Drive. Check the file ID and permissions. Error: {e}")
+                return None 
     # ---------------------------------------------------
 
     # Define the model structure (ResNet18 with 2 output classes)
@@ -160,8 +161,9 @@ def load_pytorch_model():
     model.fc = nn.Linear(model.fc.in_features, 2)
     
     try:
-        # Load the saved state dictionary
-        model.load_state_dict(torch.load(MODEL_PTH_PATH, map_location=device))
+        with st.spinner("Loading PyTorch model structure and weights..."):
+            # Load the saved state dictionary
+            model.load_state_dict(torch.load(MODEL_PTH_PATH, map_location=device))
     except Exception as e:
         st.error(f"Failed to load model weights. Ensure '{MODEL_PTH_PATH}' is a valid PyTorch state dict. Error: {e}")
         return None
@@ -191,30 +193,32 @@ def load_onnx_model(_model_pt, device):
         dummy_input = torch.randn(1, 3, 224, 224, device=device, dtype=torch.float32)
 
         try:
-            # Export the PyTorch model to ONNX format
-            torch.onnx.export(
-                _model_pt, 
-                dummy_input,
-                ONNX_PATH,
-                export_params=True,
-                opset_version=11,
-                do_constant_folding=True,
-                input_names=['input'],
-                output_names=['output'],
-                dynamic_axes={'input': {0: 'batch_size'},
-                              'output': {0: 'batch_size'}}
-            )
-            # Basic ONNX check
-            onnx_model = onnx.load(ONNX_PATH)
-            onnx.checker.check_model(onnx_model)
+            with st.spinner("Exporting PyTorch model to ONNX format (This can take a moment)..."):
+                # Export the PyTorch model to ONNX format
+                torch.onnx.export(
+                    _model_pt, 
+                    dummy_input,
+                    ONNX_PATH,
+                    export_params=True,
+                    opset_version=11,
+                    do_constant_folding=True,
+                    input_names=['input'],
+                    output_names=['output'],
+                    dynamic_axes={'input': {0: 'batch_size'},
+                                  'output': {0: 'batch_size'}}
+                )
+                # Basic ONNX check
+                onnx_model = onnx.load(ONNX_PATH)
+                onnx.checker.check_model(onnx_model)
         except Exception as e:
             st.error(f"Failed to export ONNX model: {e}")
             return None 
 
     # Load ONNX inference session
     try:
-        # Use CPUExecutionProvider for robustness
-        return ort.InferenceSession(ONNX_PATH, providers=["CPUExecutionProvider"])
+        with st.spinner("Loading ONNX inference session..."):
+            # Use CPUExecutionProvider for robustness
+            return ort.InferenceSession(ONNX_PATH, providers=["CPUExecutionProvider"])
     except Exception as e:
         st.error(f"Failed to load ONNX session: {e}")
         return None
@@ -357,6 +361,7 @@ if uploaded_file:
     
         st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
     
+
 
 
 
