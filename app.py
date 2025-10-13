@@ -24,9 +24,8 @@ GOOGLE_DRIVE_FILE_ID = "1FN8UG5pJiKPT8_yE8CkvlTC2DthCxbVR"
 # -----------------------------
 
 # Default image path for initial display (using an uploaded file name as placeholder)
-# NOTE: Cannot use local file paths (like C:\Users\...) from the user's machine.
 DEFAULT_IMAGE_PATH = "image_cfd0a2.jpg" 
-# --- NEW: Use a reliable public sample X-ray image URL as a robust fallback ---
+# Using a reliable public sample X-ray image URL as a robust fallback
 FALLBACK_IMAGE_URL = "https://cdn.pixabay.com/photo/2017/04/12/10/58/chest-x-ray-2223849_1280.jpg"
 
 
@@ -227,7 +226,6 @@ def load_onnx_model(_model_pt, device):
 
 
 # --- IMPORTANT CHANGE: Load ONNX but allow failure ---
-# If this fails, onnx_session will be None, and the UI will adapt.
 onnx_session = load_onnx_model(pytorch_model, device)
 
 
@@ -260,33 +258,35 @@ st.header("CHEST X-RAY PNEUMONIA CLASSIFIER")
 st.markdown("---")
 
 
-# Logic to display default content if no file is uploaded
-if not uploaded_file:
+# --- FIX: Define uploaded_file unconditionally at the start ---
+uploaded_file = st.file_uploader("Choose a Chest X-ray image", type=["jpg","jpeg","png"])
+# -------------------------------------------------------------
+
+
+# Logic to display default content if no file is uploaded (uploaded_file will be None initially)
+if uploaded_file is None:
     st.subheader("Welcome to Cliniscan")
-    st.markdown("Upload a chest X-ray image below to receive an immediate classification (NORMAL or PNEUMONIA) and an explainability heatmap (Grad-CAM).")
+    st.markdown("Upload a chest X-ray image above to receive an immediate classification (NORMAL or PNEUMONIA) and an explainability heatmap (Grad-CAM).")
     
-    # Try to load the uploaded file first
+    # Try to load the image
     try:
-        # Check if the file exists using the default path (best attempt)
+        # 1. Try to load the locally uploaded file (if it can be found by name in the runtime)
         if os.path.exists(DEFAULT_IMAGE_PATH):
             default_img = Image.open(DEFAULT_IMAGE_PATH).convert("RGB")
             st.image(default_img, caption="Example Chest X-ray Image", use_container_width=True)
         else:
-             # If file is not found, use the robust URL fallback
+             # 2. Use the robust URL fallback
             st.image(FALLBACK_IMAGE_URL, caption="Example Chest X-ray Image (Sample)", use_container_width=True)
 
     except Exception as e:
-        # If even the URL fails (e.g., connectivity issue)
+        # 3. If everything fails
         st.warning(f"Could not load the default image. Please upload an image to begin analysis. Error details: {e}")
         
-    # File uploader is defined last in the welcome section
-    uploaded_file = st.file_uploader("Choose a Chest X-ray image", type=["jpg","jpeg","png"])
-
     # Stop the rest of the script execution if no file is uploaded
     st.stop()
 
 
-# If uploaded_file exists, the analysis logic runs below
+# If uploaded_file exists (i.e., not None), the analysis logic runs below
 if uploaded_file:
     image_bytes = uploaded_file.read()
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
@@ -323,7 +323,6 @@ if uploaded_file:
     
     
     # --- FINAL DIAGNOSIS (Prioritizing PyTorch for Grad-CAM logic consistency) ---
-    # We use the PyTorch result as the final diagnosis, as it is required for the Grad-CAM visualization logic.
     final_diagnosis_class = pred_class_pt
     max_prob = probs_pt[pred_idx_pt].item()
 
@@ -402,6 +401,7 @@ if uploaded_file:
             df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
     
             st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
+
 
 
 
