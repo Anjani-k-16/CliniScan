@@ -11,9 +11,13 @@ import os
 import onnx 
 import cv2 
 import io 
-import gdown # IMPORTANT: Added for downloading the large model file
+import gdown 
 
 # --- Configuration ---
+# Set page config for a cleaner look (though full black might rely on environment theme)
+# This snippet is often used to ensure a dark mode is attempted, but depends on Streamlit version/environment.
+# st.set_page_config(layout="wide", initial_sidebar_state="collapsed") 
+
 device = torch.device("cpu") 
 
 # --- Model Artifact Location ---
@@ -38,10 +42,10 @@ transform = transforms.Compose([
 class_names = ["NORMAL", "PNEUMONIA"]
 
 
-
 def generate_grad_cam(model, target_layer, img_tensor, original_img):
     """Generates a heat map using Grad-CAM."""
     model.eval()
+    # We target the 'PNEUMONIA' class (index 1) for visualization
     target_class_idx = 1 
     
     feature_maps = []
@@ -52,26 +56,36 @@ def generate_grad_cam(model, target_layer, img_tensor, original_img):
     def backward_hook(module, grad_in, grad_out):
         gradients.append(grad_out[0].detach())
 
+    # Register hooks
     hook_handle_fm = target_layer.register_forward_hook(forward_hook)
     hook_handle_grad = target_layer.register_backward_hook(backward_hook)
 
+    # Forward pass
     output = model(img_tensor)
     model.zero_grad()
+    
+    # Backward pass on the target class score
     target_score = output[0, target_class_idx]
     target_score.backward(retain_graph=True) 
     
+    # Remove hooks
     hook_handle_fm.remove()
     hook_handle_grad.remove()
     
-    if not gradients:
-        # Fallback if gradients are empty
+    # Check if gradients were captured
+    if not gradients or len(gradients[0]) == 0:
+        # Fallback if gradients are empty (shouldn't happen if setup is correct)
         return Image.new('RGB', (original_img.width, original_img.height), color = 'gray')
 
+    # Compute weights from gradients (Global Average Pooling)
     pooled_gradients = torch.mean(gradients[0], dim=[0, 2, 3])
     feature_map = feature_maps[0].squeeze(0)
+    
+    # Multiply feature maps by the corresponding gradient weights
     for i in range(feature_map.shape[0]):
         feature_map[i, :, :] *= pooled_gradients[i]
     
+    # Sum across channels and apply ReLU to get the heatmap
     heatmap = torch.mean(feature_map, dim=0).relu()
     
     # Normalize the heatmap
@@ -82,18 +96,20 @@ def generate_grad_cam(model, target_layer, img_tensor, original_img):
     
     # Resize and colorize
     heatmap_resized = cv2.resize(heatmap_np, (original_img.width, original_img.height))
+    # Use JET colormap and convert to uint8
     heatmap_colored = cv2.applyColorMap(np.uint8(255 * heatmap_resized), cv2.COLORMAP_JET)
     
     # Blend with original image
     img_np = np.array(original_img.convert('RGB'))
     img_bgr = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR) 
     
+    # Superimpose the heatmap on the original image (50/50 blend)
     superimposed_img = cv2.addWeighted(img_bgr, 0.5, heatmap_colored, 0.5, 0)
     
+    # Convert back to PIL Image (RGB format)
     superimposed_img_pil = Image.fromarray(cv2.cvtColor(superimposed_img, cv2.COLOR_BGR2RGB))
     
     return superimposed_img_pil
-
 
 
 def get_status_color(class_name):
@@ -103,6 +119,7 @@ def get_status_color(class_name):
 def create_conditional_bar_chart(df, model_name):
     """Creates a VERTICAL Altair bar chart with conditional colors."""
     
+    # Define color scale based on the Class value
     color_scale = alt.condition(
         alt.datum.Class == "PNEUMONIA",
         alt.value("red"),
@@ -110,12 +127,13 @@ def create_conditional_bar_chart(df, model_name):
     )
 
     chart = alt.Chart(df).mark_bar().encode(
+        # X-axis for class, sorted by probability (y-axis)
         x=alt.X("Class", sort="-y", title=None, axis=alt.Axis(labels=True, title=None)), 
+        # Y-axis for probability, formatted as percentage
         y=alt.Y("Probability", axis=alt.Axis(format=".0%", title="Probability")),
         color=color_scale,
         tooltip=["Class", alt.Tooltip("Probability", format=".4%")] 
     ).properties(
-        # Use updated professional term
         title=f"{model_name} Class Probabilities" 
     ).interactive()
     
@@ -127,21 +145,22 @@ def create_conditional_bar_chart(df, model_name):
 def load_pytorch_model():
     """Loads the trained PyTorch model structure and weights."""
     
-    # --- Check for model file and download if missing ---
+    # --- Check for model file and download if missing (NO MESSAGES SHOWN) ---
     if not os.path.exists(MODEL_PTH_PATH):
         try:
-            st.warning("Model weights not found locally. Downloading from Google Drive...")
-            gdown.download(id=GOOGLE_DRIVE_FILE_ID, output=MODEL_PTH_PATH, quiet=False)
-            st.success("Download complete!")
+            # Download the file silently (quiet=True)
+            gdown.download(id=GOOGLE_DRIVE_FILE_ID, output=MODEL_PTH_PATH, quiet=True) 
         except Exception as e:
             st.error(f"Failed to download model from Google Drive. Check the file ID and permissions. Error: {e}")
             return None 
     # ---------------------------------------------------
 
+    # Define the model structure (ResNet18 with 2 output classes)
     model = models.resnet18(weights=None)
     model.fc = nn.Linear(model.fc.in_features, 2)
     
     try:
+        # Load the saved state dictionary
         model.load_state_dict(torch.load(MODEL_PTH_PATH, map_location=device))
     except Exception as e:
         st.error(f"Failed to load model weights. Ensure '{MODEL_PTH_PATH}' is a valid PyTorch state dict. Error: {e}")
@@ -151,10 +170,12 @@ def load_pytorch_model():
     model.eval()
     return model
 
+# Load PyTorch model (will be silent unless failure occurs)
 pytorch_model = load_pytorch_model()
 
 # Handle failure in model loading
 if pytorch_model is None:
+    # If model loading failed, stop the app immediately
     st.stop()
 
 
@@ -163,9 +184,10 @@ def load_onnx_model(_model_pt, device):
     """Loads or exports the ONNX model."""
     ONNX_PATH = "model.onnx"
     
-    # We only re-export if the file doesn't exist or is obviously corrupted
+    # We only re-export if the file doesn't exist or is too small/corrupted
     if not os.path.exists(ONNX_PATH) or os.path.getsize(ONNX_PATH) < 100000:
         
+        # Define a dummy input for the export process
         dummy_input = torch.randn(1, 3, 224, 224, device=device, dtype=torch.float32)
 
         try:
@@ -191,18 +213,43 @@ def load_onnx_model(_model_pt, device):
 
     # Load ONNX inference session
     try:
+        # Use CPUExecutionProvider for robustness
         return ort.InferenceSession(ONNX_PATH, providers=["CPUExecutionProvider"])
     except Exception as e:
         st.error(f"Failed to load ONNX session: {e}")
         return None
 
 
+# Load ONNX session (will be silent unless failure occurs)
 onnx_session = load_onnx_model(pytorch_model, device)
 
 if onnx_session is None:
     st.stop()
 
 
+# --- Streamlit UI ---
+
+# Custom styling to explicitly try and enforce a dark theme/black background
+st.markdown(
+    """
+    <style>
+    /* Main Streamlit container */
+    .stApp {
+        background-color: #000000;
+        color: white; 
+    }
+    /* Set the main content background to black */
+    [data-testid="stVerticalBlock"] {
+        background-color: #000000;
+    }
+    /* Ensure markdown text is visible on dark background */
+    h1, h2, h3, h4, p, label {
+        color: white;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 st.title("CHEST X-RAY PNEUMONIA CLASSIFIER") 
 st.markdown("---")
@@ -214,8 +261,9 @@ if uploaded_file:
     image_bytes = uploaded_file.read()
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     
-    # We use the cached model, but define target layer here
+    # Prepare tensors for PyTorch and Grad-CAM
     current_model = pytorch_model 
+    # Target layer for ResNet18: the last convolutional layer in the last block
     target_layer = current_model.layer4[-1].conv2 
     
     img_tensor = transform(img).unsqueeze(0).to(device).to(torch.float32) 
@@ -230,13 +278,14 @@ if uploaded_file:
 
     
     # --- ONNX PREDICTION ---
+    # Prepare numpy array for ONNX input
     x = transform(img).unsqueeze(0).numpy().astype(np.float32)
     outputs_onnx = onnx_session.run(None, {"input": x})[0][0]
-    # Apply softmax manually for ONNX output
+    # Apply softmax manually for ONNX output (log-softmax is common, so we re-exponentiate)
     probs_onnx = np.exp(outputs_onnx) / np.sum(np.exp(outputs_onnx))
     
     
-    # --- FINAL DIAGNOSIS (Based on ONNX as it's typically faster) ---
+    # --- FINAL DIAGNOSIS (Using ONNX result) ---
     final_pred_idx = np.argmax(probs_onnx)
     final_diagnosis_class = class_names[final_pred_idx]
     final_diagnosis_color = get_status_color(final_diagnosis_class)
@@ -245,13 +294,13 @@ if uploaded_file:
     
     st.markdown("### Classification Result:")
     
- 
+    
     if final_diagnosis_class == "PNEUMONIA":
         st.markdown(f"## :{final_diagnosis_color}[PNEUMONIA DETECTED]")
         st.warning("Action Recommended: Please consult a medical professional immediately with this result.")
     else:
         st.markdown(f"## :{final_diagnosis_color}[NORMAL FINDING]")
-    
+        
         st.info("**Model Analysis:** No Sign of Pneumonia Detected.") 
 
     st.markdown(f"Confidence: **{max_prob*100:.2f}%**")
@@ -263,8 +312,10 @@ if uploaded_file:
 
     
     st.markdown("### Model Focus (Grad-CAM Visualization)")
+    # Grad-CAM is only generated if the PyTorch model predicts Pneumonia
     if pred_class_pt == "PNEUMONIA":
         with st.spinner("Generating Explainability Heatmap..."):
+            # Use the gradcam_tensor (un-normalized) for better visualization input
             heatmap_img = generate_grad_cam(current_model, target_layer, gradcam_tensor, img)
             st.image(heatmap_img, caption="Areas contributing to PNEUMONIA diagnosis (Red/Yellow)", use_container_width=True)
     else:
@@ -273,11 +324,11 @@ if uploaded_file:
     st.markdown("---")
 
     
- 
+    
     st.markdown("### Model Prediction Scores")
     col_pt, col_onnx = st.columns(2)
 
- 
+    # --- PYTORCH CHART ---
     with col_pt:
         st.markdown("#### PyTorch Prediction")
         pred_idx_pt = torch.argmax(probs_pt).item()
@@ -287,10 +338,12 @@ if uploaded_file:
         st.markdown(
             f"Highest Confidence: **:{color_pt}[{pred_class_pt}]** ({pred_prob_pt*100:.4f}%)"
         )
+        # Create DataFrame for Altair chart
         df_pt = pd.DataFrame({"Class": class_names, "Probability":[p.item() for p in probs_pt]})
-   
+    
         st.altair_chart(create_conditional_bar_chart(df_pt, "PyTorch"), use_container_width=True) 
 
+    # --- ONNX CHART ---
     with col_onnx:
         st.markdown("#### ONNX Prediction")
         pred_prob_onnx = probs_onnx[final_pred_idx]
@@ -299,10 +352,12 @@ if uploaded_file:
         st.markdown(
             f"Highest Confidence: **:{color_onnx}[{final_diagnosis_class}]** ({pred_prob_onnx*100:.4f}%)"
         )
+        # Create DataFrame for Altair chart
         df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
- 
+    
         st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
     
+
 
 
 
