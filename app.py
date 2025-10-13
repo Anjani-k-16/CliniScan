@@ -32,8 +32,9 @@ MODEL_PATH = "model.pth" # PyTorch model path
 ONNX_PATH = "model.onnx" # ONNX model path
 
 # --- IMPORTANT: MODEL DOWNLOAD URLs ---
-# YOU MUST REPLACE THIS ID WITH THE PUBLIC GOOGLE DRIVE ID OF YOUR PYTORCH MODEL.
-PT_MODEL_DRIVE_URL = "https://drive.google.com/uc?export=download&id=YOUR_PYTORCH_MODEL_ID" 
+# This ID must be replaced with the public Google Drive ID of your PyTorch model.
+# NOTE: Using a placeholder ID below. Please replace this with your actual model ID.
+PT_MODEL_DRIVE_URL = "https://drive.google.com/uc?export=download&id=11122233344455566677788899900011" 
 # NOTE: The ONNX model is exported below, so it doesn't need an external URL unless it's too big to export.
 
 # --- TRANSFORMS (Kept the same for functionality) ---
@@ -171,8 +172,8 @@ def load_pytorch_model():
         st.error(f"Model file not found: '{MODEL_PATH}'. The Grad-CAM feature is blocked.")
         
         # 2. Attempt to download the model
-        if PT_MODEL_DRIVE_URL.endswith("YOUR_PYTORCH_MODEL_ID"):
-            st.warning("Please update the `PT_MODEL_DRIVE_URL` in the code with the public link to your PyTorch model file.")
+        if "11122233344455566677788899900011" in PT_MODEL_DRIVE_URL:
+            st.warning("The PyTorch model URL is a placeholder. Please update `PT_MODEL_DRIVE_URL` with the public link to your actual PyTorch model file for the application to function correctly.")
             return None
             
         with st.spinner(f"PyTorch model not found. Attempting to download the large model from Google Drive..."):
@@ -510,6 +511,7 @@ else:
     st.info("Upload an X-Ray image in the sidebar to begin the classification process.")
     st.image("https://placehold.co/1000x500/121212/bb86fc?text=Cliniscan+AI+Assistant+%7C+Waiting+for+Image+Upload", use_container_width=True, caption="Sample Chest X-Ray Placeholder")
     
+
 
 
 
