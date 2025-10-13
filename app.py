@@ -23,6 +23,10 @@ MODEL_PTH_PATH = "model_stable.pth"
 GOOGLE_DRIVE_FILE_ID = "1FN8UG5pJiKPT8_yE8CkvlTC2DthCxbVR"
 # -----------------------------
 
+# Default image path for initial display (using an uploaded file name as placeholder)
+# NOTE: Cannot use local file paths (like C:\Users\...) from the user's machine.
+DEFAULT_IMAGE_PATH = "image_cfd0a2.jpg" 
+
 
 transform_gradcam = transforms.Compose([
     transforms.Resize((224, 224)),
@@ -253,9 +257,29 @@ st.markdown(
 st.header("CHEST X-RAY PNEUMONIA CLASSIFIER") 
 st.markdown("---")
 
-
+# File uploader is defined first
 uploaded_file = st.file_uploader("Choose a Chest X-ray image", type=["jpg","jpeg","png"])
 
+# Logic to display default image if no file is uploaded
+if not uploaded_file:
+    st.subheader("Welcome to Cliniscan")
+    st.markdown("Upload a chest X-ray image above to receive an immediate classification (NORMAL or PNEUMONIA) and an explainability heatmap (Grad-CAM).")
+    
+    try:
+        # Load and display the default image
+        default_img = Image.open(DEFAULT_IMAGE_PATH).convert("RGB")
+        st.image(default_img, caption="Example Chest X-ray Image", use_container_width=True)
+
+    except FileNotFoundError:
+        st.info(f"The default image '{DEFAULT_IMAGE_PATH}' was not found. Please upload an image to begin analysis.")
+    except Exception as e:
+        st.warning(f"Could not display default image: {e}. Please upload an image.")
+        
+    # Stop the rest of the script execution if no file is uploaded
+    st.stop()
+
+
+# If uploaded_file exists, the analysis logic runs below
 if uploaded_file:
     image_bytes = uploaded_file.read()
     img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
@@ -371,6 +395,7 @@ if uploaded_file:
             df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
     
             st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
+
 
 
 
