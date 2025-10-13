@@ -186,6 +186,11 @@ def load_onnx_model(_model_pt, device):
     """Loads or exports the ONNX model."""
     ONNX_PATH = "model.onnx"
     
+    # Check if PyTorch model failed to load before attempting ONNX export
+    if _model_pt is None:
+        st.warning("Cannot load ONNX model: PyTorch model failed to load first.")
+        return None
+
     # We only re-export if the file doesn't exist or is too small/corrupted
     if not os.path.exists(ONNX_PATH) or os.path.getsize(ONNX_PATH) < 100000:
         
@@ -361,6 +366,7 @@ if uploaded_file:
     
         st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
     
+
 
 
 
