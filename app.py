@@ -11,13 +11,14 @@ import os
 import onnx 
 import cv2 
 import io 
-import gdown # IMPORTANT: Added for downloading the large model file
+import gdown 
 
 # --- Configuration ---
 device = torch.device("cpu") 
 
 # --- Model Artifact Location ---
-MODEL_PTH_PATH = "model.pth"
+# Reverted to stable name to avoid cache conflicts with "model.pth"
+MODEL_PTH_PATH = "model_stable.pth"
 # UNIQUE GOOGLE DRIVE FILE ID:
 # This ID is for your model.pth file hosted externally.
 GOOGLE_DRIVE_FILE_ID = "1FN8UG5pJiKPT8_yE8CkvlTC2DthCxbVR"
@@ -36,7 +37,6 @@ transform = transforms.Compose([
 ])
 
 class_names = ["NORMAL", "PNEUMONIA"]
-
 
 
 def generate_grad_cam(model, target_layer, img_tensor, original_img):
@@ -63,7 +63,7 @@ def generate_grad_cam(model, target_layer, img_tensor, original_img):
     hook_handle_fm.remove()
     hook_handle_grad.remove()
     
-    if not gradients:
+    if not gradients or len(gradients[0]) == 0:
         # Fallback if gradients are empty
         return Image.new('RGB', (original_img.width, original_img.height), color = 'gray')
 
@@ -95,7 +95,6 @@ def generate_grad_cam(model, target_layer, img_tensor, original_img):
     return superimposed_img_pil
 
 
-
 def get_status_color(class_name):
     """Returns 'red' for PNEUMONIA and 'green' for NORMAL for markdown text."""
     return "red" if class_name == "PNEUMONIA" else "green"
@@ -122,27 +121,34 @@ def create_conditional_bar_chart(df, model_name):
     return chart
 
 
-
 @st.cache_resource
 def load_pytorch_model():
     """Loads the trained PyTorch model structure and weights."""
     
-    # --- Check for model file and download if missing ---
-    if not os.path.exists(MODEL_PTH_PATH):
-        try:
-            st.warning("Model weights not found locally. Downloading from Google Drive...")
-            gdown.download(id=GOOGLE_DRIVE_FILE_ID, output=MODEL_PTH_PATH, quiet=False)
-            st.success("Download complete!")
-        except Exception as e:
-            st.error(f"Failed to download model from Google Drive. Check the file ID and permissions. Error: {e}")
-            return None 
+    # --- Check for model file and download if missing or corrupted ---
+    # Added robust file size check (100KB minimum)
+    if not os.path.exists(MODEL_PTH_PATH) or os.path.getsize(MODEL_PTH_PATH) < 100000:
+        with st.spinner("Model weights not found/corrupted. Downloading from Google Drive..."):
+            try:
+                # Download the file
+                gdown.download(id=GOOGLE_DRIVE_FILE_ID, output=MODEL_PTH_PATH, quiet=True)
+                
+                # Sanity check after download
+                if not os.path.exists(MODEL_PTH_PATH) or os.path.getsize(MODEL_PTH_PATH) < 100000:
+                     raise Exception("Downloaded file is empty or corrupted.")
+
+                st.success("PyTorch model download complete!")
+            except Exception as e:
+                st.error(f"Failed to download model from Google Drive. Check the file ID and permissions. Error: {e}")
+                return None 
     # ---------------------------------------------------
 
     model = models.resnet18(weights=None)
     model.fc = nn.Linear(model.fc.in_features, 2)
     
     try:
-        model.load_state_dict(torch.load(MODEL_PTH_PATH, map_location=device))
+        with st.spinner(f"Loading PyTorch weights from {MODEL_PTH_PATH}..."):
+            model.load_state_dict(torch.load(MODEL_PTH_PATH, map_location=device))
     except Exception as e:
         st.error(f"Failed to load model weights. Ensure '{MODEL_PTH_PATH}' is a valid PyTorch state dict. Error: {e}")
         return None
@@ -161,7 +167,8 @@ if pytorch_model is None:
 @st.cache_resource
 def load_onnx_model(_model_pt, device):
     """Loads or exports the ONNX model."""
-    ONNX_PATH = "model.onnx"
+    # Renamed the ONNX path to force a fresh export, avoiding cache issues
+    ONNX_PATH = "model_onnx_new.onnx"
     
     # We only re-export if the file doesn't exist or is obviously corrupted
     if not os.path.exists(ONNX_PATH) or os.path.getsize(ONNX_PATH) < 100000:
@@ -169,29 +176,32 @@ def load_onnx_model(_model_pt, device):
         dummy_input = torch.randn(1, 3, 224, 224, device=device, dtype=torch.float32)
 
         try:
-            # Export the PyTorch model to ONNX format
-            torch.onnx.export(
-                _model_pt, 
-                dummy_input,
-                ONNX_PATH,
-                export_params=True,
-                opset_version=11,
-                do_constant_folding=True,
-                input_names=['input'],
-                output_names=['output'],
-                dynamic_axes={'input': {0: 'batch_size'},
-                              'output': {0: 'batch_size'}}
-            )
+            with st.spinner("EXPORTING PYTORCH TO ONNX (This is CPU-intensive and might take time)..."):
+                # Export the PyTorch model to ONNX format
+                torch.onnx.export(
+                    _model_pt, 
+                    dummy_input,
+                    ONNX_PATH,
+                    export_params=True,
+                    opset_version=11,
+                    do_constant_folding=True,
+                    input_names=['input'],
+                    output_names=['output'],
+                    dynamic_axes={'input': {0: 'batch_size'},
+                                  'output': {0: 'batch_size'}}
+                )
             # Basic ONNX check
             onnx_model = onnx.load(ONNX_PATH)
             onnx.checker.check_model(onnx_model)
+            st.success("ONNX export successful!")
         except Exception as e:
-            st.error(f"Failed to export ONNX model: {e}")
+            st.error(f"Failed to export ONNX model. If this persists, the environment likely hit resource limits. Error: {e}")
             return None 
 
     # Load ONNX inference session
     try:
-        return ort.InferenceSession(ONNX_PATH, providers=["CPUExecutionProvider"])
+        with st.spinner(f"Loading ONNX session from {ONNX_PATH}..."):
+            return ort.InferenceSession(ONNX_PATH, providers=["CPUExecutionProvider"])
     except Exception as e:
         st.error(f"Failed to load ONNX session: {e}")
         return None
@@ -199,12 +209,38 @@ def load_onnx_model(_model_pt, device):
 
 onnx_session = load_onnx_model(pytorch_model, device)
 
+# Note: We stop only if the essential PyTorch model failed. If ONNX fails, 
+# the app can still run using PyTorch, but for simplicity, we stop here 
+# since the user wants the dual-model functionality.
 if onnx_session is None:
     st.stop()
 
 
+# --- Streamlit UI ---
 
-st.title("CHEST X-RAY PNEUMONIA CLASSIFIER") 
+# Custom styling to explicitly try and enforce a dark theme/black background
+st.markdown(
+    """
+    <style>
+    /* Main Streamlit container */
+    .stApp {
+        background-color: #000000;
+        color: white; 
+    }
+    /* Set the main content background to black */
+    [data-testid="stVerticalBlock"] {
+        background-color: #000000;
+    }
+    /* Ensure markdown text is visible on dark background */
+    h1, h2, h3, h4, p, label {
+        color: white;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+st.title("CHEST X-RAY PNEUMONIA CLASSIFIER (Dual Engine)") 
 st.markdown("---")
 
 
@@ -282,13 +318,14 @@ if uploaded_file:
         st.markdown("#### PyTorch Prediction")
         pred_idx_pt = torch.argmax(probs_pt).item()
         pred_prob_pt = probs_pt[pred_idx_pt].item()
-        color_pt = get_status_color(pred_class_pt)
+        pred_class_pt_name = class_names[pred_idx_pt]
+        color_pt = get_status_color(pred_class_pt_name)
 
         st.markdown(
-            f"Highest Confidence: **:{color_pt}[{pred_class_pt}]** ({pred_prob_pt*100:.4f}%)"
+            f"Highest Confidence: **:{color_pt}[{pred_class_pt_name}]** ({pred_prob_pt*100:.4f}%)"
         )
         df_pt = pd.DataFrame({"Class": class_names, "Probability":[p.item() for p in probs_pt]})
-   
+    
         st.altair_chart(create_conditional_bar_chart(df_pt, "PyTorch"), use_container_width=True) 
 
     with col_onnx:
@@ -303,6 +340,7 @@ if uploaded_file:
  
         st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
     
+
 
 
 
