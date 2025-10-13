@@ -29,7 +29,8 @@ DEFAULT_IMAGE_PATH = "image_cfd0a2.jpg"
 
 # --- New Placeholder URL ---
 # Using a publicly accessible image URL for a clean, reliable sample image display.
-PLACEHOLDER_IMAGE_URL = "https://placehold.co/600x400/000000/AAAAAA?text=Sample+X-ray+Screen"
+# Updated to use WHITE background for high visibility against the black app theme
+PLACEHOLDER_IMAGE_URL = "https://placehold.co/600x400/FFFFFF/000000?text=Sample+X-ray+Screen"
 
 # We can remove the tiny Base64 placeholder since we are using a robust URL now.
 # BASE64_PLACEHOLDER_IMAGE = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwAB/2+Bw/oAAAAASUVORK5CYII="
@@ -269,19 +270,13 @@ uploaded_file = st.file_uploader("Choose a Chest X-ray image", type=["jpg","jpeg
 # Logic to display default content if no file is uploaded (uploaded_file will be None initially)
 if uploaded_file is None:
     
-    # 1. First, try to load a locally provided image file
-    if os.path.exists(DEFAULT_IMAGE_PATH):
-        try:
-            sample_img = Image.open(DEFAULT_IMAGE_PATH).convert("RGB")
-            st.image(sample_img, caption="Example X-ray Image (Sample)", use_container_width=True)
-            st.stop()
-        except Exception:
-            # If local file exists but is corrupted, fall through to the URL fallback
-            pass 
-        
-    # 2. Fallback: If no local file is found (or it failed to load), display the public URL image
-    # Note: st.image with a URL handles network fetching gracefully.
-    st.image(PLACEHOLDER_IMAGE_URL, caption="Upload a Chest X-ray image above to begin analysis.", use_container_width=True)
+    # Use the robust public URL placeholder for display when no file is uploaded.
+    # Removed unreliable local file path check.
+    st.image(
+        PLACEHOLDER_IMAGE_URL, 
+        caption="Upload a Chest X-ray image above to begin analysis.", 
+        use_container_width=True
+    )
         
     # Stop the rest of the script execution if no file is uploaded
     st.stop()
@@ -402,6 +397,7 @@ if uploaded_file:
             df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
     
             st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
+
 
 
 
