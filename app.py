@@ -250,7 +250,7 @@ st.markdown(
 )
 
 # --- STATIC TITLE ---
-st.title("CHEST X-RAY PNEUMONIA CLASSIFIER") 
+st.header("CHEST X-RAY PNEUMONIA CLASSIFIER") 
 st.markdown("---")
 
 
@@ -371,6 +371,7 @@ if uploaded_file:
             df_onnx = pd.DataFrame({"Class": class_names, "Probability": probs_onnx})
     
             st.altair_chart(create_conditional_bar_chart(df_onnx, "ONNX"), use_container_width=True)
+
 
 
 
